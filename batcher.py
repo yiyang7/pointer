@@ -16,7 +16,7 @@
 
 """This file contains code to process data into batches"""
 
-import Queue
+import queue
 from random import shuffle
 from threading import Thread
 import time
@@ -60,7 +60,7 @@ class Example(object):
     self.dec_len = len(self.dec_input)
 
     # If using pointer-generator mode, we need to store some extra info
-    if hps.pointer_gen.value:
+    if hps.pointer_gen:
       # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; also store the in-article OOVs words themselves
       self.enc_input_extend_vocab, self.article_oovs = data.article2ids(article_words, vocab)
 
@@ -112,7 +112,7 @@ class Example(object):
     """Pad the encoder input sequence with pad_id up to max_len."""
     while len(self.enc_input) < max_len:
       self.enc_input.append(pad_id)
-    if self.hps.pointer_gen.value:
+    if self.hps.pointer_gen:
       while len(self.enc_input_extend_vocab) < max_len:
         self.enc_input_extend_vocab.append(pad_id)
 
@@ -136,11 +136,11 @@ class Batch(object):
   def init_encoder_seq(self, example_list, hps):
     """Initializes the following:
         self.enc_batch:
-          numpy array of shape (batch_size.value, <=max_enc_steps) containing integer ids (all OOVs represented by UNK id), padded to length of longest sequence in the batch
+          numpy array of shape (batch_size, <=max_enc_steps) containing integer ids (all OOVs represented by UNK id), padded to length of longest sequence in the batch
         self.enc_lens:
-          numpy array of shape (batch_size.value) containing integers. The (truncated) length of each encoder input sequence (pre-padding).
+          numpy array of shape (batch_size) containing integers. The (truncated) length of each encoder input sequence (pre-padding).
         self.enc_padding_mask:
-          numpy array of shape (batch_size.value, <=max_enc_steps), containing 1s and 0s. 1s correspond to real tokens in enc_batch and target_batch; 0s correspond to padding.
+          numpy array of shape (batch_size, <=max_enc_steps), containing 1s and 0s. 1s correspond to real tokens in enc_batch and target_batch; 0s correspond to padding.
 
       If hps.pointer_gen, additionally initializes the following:
         self.max_art_oovs:
@@ -171,7 +171,7 @@ class Batch(object):
         self.enc_padding_mask[i][j] = 1
 
     # For pointer-generator mode, need to store some extra info
-    if hps.pointer_gen.value:
+    if hps.pointer_gen:
       # Determine the max number of in-article OOVs in this batch
       self.max_art_oovs = max([len(ex.article_oovs) for ex in example_list])
       # Store the in-article OOVs themselves
@@ -184,11 +184,11 @@ class Batch(object):
   def init_decoder_seq(self, example_list, hps):
     """Initializes the following:
         self.dec_batch:
-          numpy array of shape (batch_size.value, max_dec_steps), containing integer ids as input for the decoder, padded to max_dec_steps length.
+          numpy array of shape (batch_size, max_dec_steps), containing integer ids as input for the decoder, padded to max_dec_steps length.
         self.target_batch:
-          numpy array of shape (batch_size.value, max_dec_steps), containing integer ids for the target sequence, padded to max_dec_steps length.
+          numpy array of shape (batch_size, max_dec_steps), containing integer ids for the target sequence, padded to max_dec_steps length.
         self.dec_padding_mask:
-          numpy array of shape (batch_size.value, max_dec_steps), containing 1s and 0s. 1s correspond to real tokens in dec_batch and target_batch; 0s correspond to padding.
+          numpy array of shape (batch_size, max_dec_steps), containing 1s and 0s. 1s correspond to real tokens in dec_batch and target_batch; 0s correspond to padding.
         """
     # Pad the inputs and targets
     for ex in example_list:
@@ -234,8 +234,8 @@ class Batcher(object):
     self._single_pass = single_pass
 
     # Initialize a queue of Batches waiting to be used, and a queue of Examples waiting to be batched
-    self._batch_queue = Queue.Queue(self.BATCH_QUEUE_MAX)
-    self._example_queue = Queue.Queue(self.BATCH_QUEUE_MAX * self._hps.batch_size.value)
+    self._batch_queue = queue.Queue(self.BATCH_QUEUE_MAX)
+    self._example_queue = queue.Queue(self.BATCH_QUEUE_MAX * self._hps.batch_size.value)
 
     # Different settings depending on whether we're in single_pass mode or not
     if single_pass:
@@ -244,9 +244,9 @@ class Batcher(object):
       self._bucketing_cache_size = 1 # only load one batch's worth of examples before bucketing; this essentially means no bucketing
       self._finished_reading = False # this will tell us when we're finished reading the dataset
     else:
-      self._num_example_q_threads = 1 #16 # num threads to fill example queue
-      self._num_batch_q_threads = 1 #4  # num threads to fill batch queue
-      self._bucketing_cache_size = 1 #100 # how many batches-worth of examples to load into cache before bucketing
+      self._num_example_q_threads = 16 # num threads to fill example queue
+      self._num_batch_q_threads = 4  # num threads to fill batch queue
+      self._bucketing_cache_size = 100 # how many batches-worth of examples to load into cache before bucketing
 
     # Start the threads that load the queues
     self._example_q_threads = []
@@ -275,7 +275,6 @@ class Batcher(object):
     Returns:
       batch: a Batch object, or None if we're in single_pass mode and we've exhausted the dataset.
     """
-    print "--- next_batch"
     # If the batch queue is empty, print a warning
     if self._batch_queue.qsize() == 0:
       tf.logging.warning('Bucket input queue is empty when calling next_batch. Bucket queue size: %i, Input queue size: %i', self._batch_queue.qsize(), self._example_queue.qsize())
@@ -293,7 +292,9 @@ class Batcher(object):
 
     while True:
       try:
-        (article, abstract) = input_gen.next() # read the next example from file. article and abstract are both strings.
+        (article, abstract) = next(input_gen) # read the next example from file. article and abstract are both strings.
+        article = article.decode("utf-8")
+        abstract = abstract.decode("utf-8")
       except StopIteration: # if there are no more examples:
         tf.logging.info("The example generator for this example queue filling thread has exhausted data.")
         if self._single_pass:
@@ -313,39 +314,27 @@ class Batcher(object):
 
     In decode mode, makes batches that each contain a single example repeated.
     """
-#     print "--- fill_batch_queue"
-    
     while True:
-#         print "while loop"
-        if self._hps.mode != 'decode':
-#             print "not decode mode"
-            # Get bucketing_cache_size-many batches of Examples into a list, then sort
-            inputs = []
-#             print "inputs0: ", inputs
-#             print "self._hps.batch_size.value:", self._hps.batch_size.value
-#             print "self._bucketing_cache_size:", self._bucketing_cache_size
-            for _ in range(self._hps.batch_size.value * self._bucketing_cache_size):
-#                 print "self._example_queue.get()",self._example_queue.get()
-                inputs.append(self._example_queue.get())
-#                 print "inputs1: ", inputs
-            inputs = sorted(inputs, key=lambda inp: inp.enc_len) # sort by length of encoder sequence
+      if self._hps.mode.value != 'decode':
+        # Get bucketing_cache_size-many batches of Examples into a list, then sort
+        inputs = []
+        for _ in range(self._hps.batch_size.value * self._bucketing_cache_size):
+          inputs.append(self._example_queue.get())
+        inputs = sorted(inputs, key=lambda inp: inp.enc_len) # sort by length of encoder sequence
 
-#             print "inputs2: ", inputs
+        # Group the sorted Examples into batches, optionally shuffle the batches, and place in the batch queue.
+        batches = []
+        for i in range(0, len(inputs), self._hps.batch_size.value):
+          batches.append(inputs[i:i + self._hps.batch_size.value])
+        if not self._single_pass:
+          shuffle(batches)
+        for b in batches:  # each b is a list of Example objects
+          self._batch_queue.put(Batch(b, self._hps, self._vocab))
 
-            # Group the sorted Examples into batches, optionally shuffle the batches, and place in the batch queue.
-            batches = []
-            for i in range(0, len(inputs), self._hps.batch_size.value):
-                batches.append(inputs[i:i + self._hps.batch_size.value])
-            if not self._single_pass:
-                shuffle(batches)
-            for b in batches:  # each b is a list of Example objects
-                self._batch_queue.put(Batch(b, self._hps, self._vocab))
-#             print "batches: ", batches
-
-        else: # beam search decode mode
-            ex = self._example_queue.get()
-            b = [ex for _ in range(self._hps.batch_size.value)]
-            self._batch_queue.put(Batch(b, self._hps, self._vocab))
+      else: # beam search decode mode
+        ex = self._example_queue.get()
+        b = [ex for _ in range(self._hps.batch_size.value)]
+        self._batch_queue.put(Batch(b, self._hps, self._vocab))
 
 
   def watch_threads(self):
@@ -374,7 +363,7 @@ class Batcher(object):
     Args:
       example_generator: a generator of tf.Examples from file. See data.example_generator"""
     while True:
-      e = example_generator.next() # e is a tf.Example
+      e = next(example_generator) # e is a tf.Example
       try:
         article_text = e.features.feature['article'].bytes_list.value[0] # the article text was saved under the key 'article' in the data files
         abstract_text = e.features.feature['abstract'].bytes_list.value[0] # the abstract text was saved under the key 'abstract' in the data files
