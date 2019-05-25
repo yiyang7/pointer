@@ -16,7 +16,7 @@ END_TOKENS = ['.', '!', '?', '...', "'", "`", '"', dm_single_close_quote, dm_dou
 SENTENCE_START = '<s>'
 SENTENCE_END = '</s>'
 
-keyword = "@hightlight"
+keyword = "@highlight"
 
 # all_train_urls = "url_lists/all_train.txt"
 # all_val_urls = "url_lists/all_val.txt"
@@ -159,11 +159,11 @@ def write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, out_fil
   
   story_f = None
   if flag == "train":
-    story_f = open("AskReddittrainlist.txt","r")
+    story_f = open("AskReddit_trainlist.txt","r")
   elif flag == "val":
-    story_f = open("AskRedditdevlist.txt","r")
+    story_f = open("AskReddit_vallist.txt","r")
   elif flag == "test":
-    story_f = open("AskReddittestlist.txt","r")
+    story_f = open("AskReddit_testlist.txt","r")
     
   story_fnames = story_f.readlines()
   num_stories = len(story_fnames)
@@ -183,7 +183,7 @@ def write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, out_fil
       # Look in the tokenized story dirs to find the .story file corresponding to this url
       if os.path.isfile(os.path.join(tokenized_stories_dir, s)):
         story_file = os.path.join(tokenized_stories_dir, s)
-        print ("write_to_bin story_file: ", story_file)
+#         print ("write_to_bin story_file: ", story_file)
       else:
         print ("Error: Couldn't find tokenized story file %s in either tokenized story directories %s. Was there an error during tokenization?" % (s, tokenized_stories_dir))
         # Check again if tokenized stories directories contain correct number of files
@@ -196,7 +196,7 @@ def write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, out_fil
       article, abstract = get_art_abs(story_file)
       article = bytes(article, 'utf-8')
       abstract = bytes(abstract, 'utf-8')
-      print ("write_to_bin article: ", article[:10])
+      print ("write_to_bin article: ", article)
       print ("write_to_bin abstract: ", abstract)
       
       # Write to tf.Example
@@ -262,12 +262,12 @@ if __name__ == '__main__':
   if not os.path.exists(finished_files_dir): os.makedirs(finished_files_dir)
 
   # Run stanford tokenizer on both stories dirs, outputting to tokenized stories directories
-  tokenize_stories(stories_dir, tokenized_stories_dir)
+#   tokenize_stories(stories_dir, tokenized_stories_dir)
 
   # Read the tokenized stories, do a little postprocessing then write to bin files
+#   write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "train.bin"), "train", makevocab=True)
+#   write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "val.bin"), "val")
   write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "test.bin"), "test")
-  write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "val.bin"), "val")
-  write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "train.bin"), "train", makevocab=True)
 
   # Chunk the data. This splits each of train.bin, val.bin and test.bin into smaller chunks, each containing e.g. 1000 examples, and saves them in finished_files/chunks
   chunk_all(chunks_dir, finished_files_dir)
