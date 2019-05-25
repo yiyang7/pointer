@@ -46,10 +46,15 @@ class SummarizationModel(object):
 
     # decoder part
     # print("hps.batch_size.value: ", hps.batch_size.value)
-    print("hps.max_dec_steps: ", hps.max_dec_steps.value)
-    self._dec_batch = tf.placeholder(tf.int32, [hps.batch_size.value, hps.max_dec_steps.value], name='dec_batch')
-    self._target_batch = tf.placeholder(tf.int32, [hps.batch_size.value, hps.max_dec_steps.value], name='target_batch')
-    self._dec_padding_mask = tf.placeholder(tf.float32, [hps.batch_size.value, hps.max_dec_steps.value], name='dec_padding_mask')
+    max_dec_steps = hps.max_dec_steps
+    if hps.mode.value != "decode":
+    	max_dec_steps = hps.max_dec_steps.value
+    
+    print("max_dec_steps: ", max_dec_steps)
+
+    self._dec_batch = tf.placeholder(tf.int32, [hps.batch_size.value, max_dec_steps], name='dec_batch')
+    self._target_batch = tf.placeholder(tf.int32, [hps.batch_size.value, max_dec_steps], name='target_batch')
+    self._dec_padding_mask = tf.placeholder(tf.float32, [hps.batch_size.value, max_dec_steps], name='dec_padding_mask')
     # print("hps.coverage: ", hps.coverage.value)
     # print("hps.mode.value: ", hps.mode.value)
     if hps.mode.value=="decode" and hps.coverage.value:

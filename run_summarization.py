@@ -294,11 +294,14 @@ def main(unused_argv):
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
   hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen']
   hps_dict = {}
+#   print("FLAGS.__flags.items: ", FLAGS.__flags.items)
+#   print("FLAGS.__flags.items(): ", FLAGS.__flags.items())
   for key,val in FLAGS.__flags.items(): # for each flag
     if key in hparam_list: # if it's in the list
       hps_dict[key] = val # add it to the dict
+  print ("hps_dict: ", hps_dict)
   hps = namedtuple("HParams", hps_dict.keys())(**hps_dict)
-
+  print ("hps: ", hps)
   # Create a batcher object that will create minibatches of data
   batcher = Batcher(FLAGS.data_path, vocab, hps, single_pass=FLAGS.single_pass)
 
