@@ -45,11 +45,14 @@ class SummarizationModel(object):
       self._max_art_oovs = tf.placeholder(tf.int32, [], name='max_art_oovs')
 
     # decoder part
-    self._dec_batch = tf.placeholder(tf.int32, [hps.batch_size.value, hps.max_dec_steps.value], name='dec_batch')
-    self._target_batch = tf.placeholder(tf.int32, [hps.batch_size.value, hps.max_dec_steps.value], name='target_batch')
-    self._dec_padding_mask = tf.placeholder(tf.float32, [hps.batch_size.value, hps.max_dec_steps.value], name='dec_padding_mask')
-
-    if hps.mode.value=="decode" and hps.coverage:
+    # print("hps.batch_size.value: ", hps.batch_size.value)
+    # print("hps.max_dec_steps: ",hps.max_dec_steps)
+    self._dec_batch = tf.placeholder(tf.int32, [hps.batch_size.value, hps.max_dec_steps], name='dec_batch')
+    self._target_batch = tf.placeholder(tf.int32, [hps.batch_size.value, hps.max_dec_steps], name='target_batch')
+    self._dec_padding_mask = tf.placeholder(tf.float32, [hps.batch_size.value, hps.max_dec_steps], name='dec_padding_mask')
+    # print("hps.coverage: ", hps.coverage.value)
+    # print("hps.mode.value: ", hps.mode.value)
+    if hps.mode.value=="decode" and hps.coverage.value:
       self.prev_coverage = tf.placeholder(tf.float32, [hps.batch_size.value, None], name='prev_coverage')
 
 
@@ -137,9 +140,10 @@ class SummarizationModel(object):
     hps = self._hps
     cell = tf.contrib.rnn.LSTMCell(hps.hidden_dim.value, state_is_tuple=True, initializer=self.rand_unif_init)
 
-    prev_coverage = self.prev_coverage if hps.mode.value=="decode" and hps.coverage else None # In decode mode, we run attention_decoder one step at a time and so need to pass in the previous step's coverage vector each time
-
-    outputs, out_state, attn_dists, p_gens, coverage = attention_decoder(inputs, self._dec_in_state, self._enc_states, self._enc_padding_mask, cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen, use_coverage=hps.coverage, prev_coverage=prev_coverage)
+    # print("hps.coverage: ", hps.coverage.value)
+    prev_coverage = self.prev_coverage if hps.mode.value=="decode" and hps.coverage.value else None # In decode mode, we run attention_decoder one step at a time and so need to pass in the previous step's coverage vector each time
+    # print("hps.pointer_gen: ", hps.pointer_gen.value)
+    outputs, out_state, attn_dists, p_gens, coverage = attention_decoder(inputs, self._dec_in_state, self._enc_states, self._enc_padding_mask, cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)
 
     return outputs, out_state, attn_dists, p_gens, coverage
 
@@ -270,6 +274,7 @@ class SummarizationModel(object):
           tf.summary.scalar('loss', self._loss)
 
           # Calculate coverage loss from the attention distributions
+          print("hps.coverage: ", hps.coverage.value)
           if hps.coverage:
             with tf.variable_scope('coverage_loss'):
               self._coverage_loss = _coverage_loss(self.attn_dists, self._dec_padding_mask)
@@ -288,6 +293,7 @@ class SummarizationModel(object):
   def _add_train_op(self):
     """Sets self._train_op, the op to run for training."""
     # Take gradients of the trainable variables w.r.t. the loss function to minimize
+    # print("self._hps.coverage: ", type(self._hps.coverage.value))
     loss_to_minimize = self._total_loss if self._hps.coverage else self._loss
     tvars = tf.trainable_variables()
     gradients = tf.gradients(loss_to_minimize, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
@@ -328,6 +334,7 @@ class SummarizationModel(object):
         'loss': self._loss,
         'global_step': self.global_step,
     }
+    # print("self._hps.coverage: ", type(self._hps.coverage))
     if self._hps.coverage:
       to_return['coverage_loss'] = self._coverage_loss
     return sess.run(to_return, feed_dict)
@@ -340,6 +347,7 @@ class SummarizationModel(object):
         'loss': self._loss,
         'global_step': self.global_step,
     }
+    # print("self._hps.coverage: ", type(self._hps.coverage))
     if self._hps.coverage:
       to_return['coverage_loss'] = self._coverage_loss
     return sess.run(to_return, feed_dict)
@@ -412,7 +420,7 @@ class SummarizationModel(object):
       feed[self._enc_batch_extend_vocab] = batch.enc_batch_extend_vocab
       feed[self._max_art_oovs] = batch.max_art_oovs
       to_return['p_gens'] = self.p_gens
-
+    # print("self._hps.coverage: ", type(self._hps.coverage))
     if self._hps.coverage:
       feed[self.prev_coverage] = np.stack(prev_coverage, axis=0)
       to_return['coverage'] = self.coverage
@@ -420,7 +428,7 @@ class SummarizationModel(object):
     results = sess.run(to_return, feed_dict=feed) # run the decoder step
 
     # Convert results['states'] (a single LSTMStateTuple) into a list of LSTMStateTuple -- one for each hypothesis
-    new_states = [tf.contrib.rnn.LSTMStateTuple(results['states'].c[i, :], results['states'].h[i, :]) for i in xrange(beam_size)]
+    new_states = [tf.contrib.rnn.LSTMStateTuple(results['states'].c[i, :], results['states'].h[i, :]) for i in range(beam_size)]
 
     # Convert singleton list containing a tensor to a list of k arrays
     assert len(results['attn_dists'])==1
@@ -431,14 +439,14 @@ class SummarizationModel(object):
       assert len(results['p_gens'])==1
       p_gens = results['p_gens'][0].tolist()
     else:
-      p_gens = [None for _ in xrange(beam_size)]
+      p_gens = [None for _ in range(beam_size)]
 
     # Convert the coverage tensor to a list length k containing the coverage vector for each hypothesis
     if FLAGS.coverage:
       new_coverage = results['coverage'].tolist()
       assert len(new_coverage) == beam_size
     else:
-      new_coverage = [None for _ in xrange(beam_size)]
+      new_coverage = [None for _ in range(beam_size)]
 
     return results['ids'], results['probs'], new_states, attn_dists, p_gens, new_coverage
 

@@ -60,7 +60,8 @@ class Example(object):
     self.dec_len = len(self.dec_input)
 
     # If using pointer-generator mode, we need to store some extra info
-    if hps.pointer_gen:
+    # print("batcher hps.pointer_gen: ", hps.pointer_gen.value)
+    if hps.pointer_gen.value:
       # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; also store the in-article OOVs words themselves
       self.enc_input_extend_vocab, self.article_oovs = data.article2ids(article_words, vocab)
 
@@ -112,7 +113,8 @@ class Example(object):
     """Pad the encoder input sequence with pad_id up to max_len."""
     while len(self.enc_input) < max_len:
       self.enc_input.append(pad_id)
-    if self.hps.pointer_gen:
+    # print("batcher self.hps.pointer_gen: ", self.hps.pointer_gen.value)
+    if self.hps.pointer_gen.value:
       while len(self.enc_input_extend_vocab) < max_len:
         self.enc_input_extend_vocab.append(pad_id)
 
@@ -171,7 +173,8 @@ class Batch(object):
         self.enc_padding_mask[i][j] = 1
 
     # For pointer-generator mode, need to store some extra info
-    if hps.pointer_gen:
+    # print("batcher hps.pointer_gen: ", hps.pointer_gen.value)
+    if hps.pointer_gen.value:
       # Determine the max number of in-article OOVs in this batch
       self.max_art_oovs = max([len(ex.article_oovs) for ex in example_list])
       # Store the in-article OOVs themselves
@@ -235,6 +238,7 @@ class Batcher(object):
 
     # Initialize a queue of Batches waiting to be used, and a queue of Examples waiting to be batched
     self._batch_queue = queue.Queue(self.BATCH_QUEUE_MAX)
+    # print("self._hps.batch_size.value: ", self._hps.batch_size.value)
     self._example_queue = queue.Queue(self.BATCH_QUEUE_MAX * self._hps.batch_size.value)
 
     # Different settings depending on whether we're in single_pass mode or not
@@ -289,12 +293,18 @@ class Batcher(object):
     """Reads data from file and processes into Examples which are then placed into the example queue."""
 
     input_gen = self.text_generator(data.example_generator(self._data_path, self._single_pass))
+    print ("batcher input_gen: ", input_gen)
 
     while True:
       try:
         (article, abstract) = next(input_gen) # read the next example from file. article and abstract are both strings.
+        print ("batcher article: ", article)
+        print ("batcher abstract: ", abstract)
         article = article.decode("utf-8")
         abstract = abstract.decode("utf-8")
+        print ("batcher after utf-8")
+        print ("batcher article: ", article)
+        print ("batcher abstract: ", abstract)
       except StopIteration: # if there are no more examples:
         tf.logging.info("The example generator for this example queue filling thread has exhausted data.")
         if self._single_pass:
@@ -304,9 +314,13 @@ class Batcher(object):
         else:
           raise Exception("single_pass mode is off but the example generator is out of data; error.")
 
+      print ("batcher abstract: ", abstract)
       abstract_sentences = [sent.strip() for sent in data.abstract2sents(abstract)] # Use the <s> and </s> tags in abstract to get a list of sentences.
+      print ("batcher abstract_sentences: ", abstract_sentences)
       example = Example(article, abstract_sentences, self._vocab, self._hps) # Process into an Example.
       self._example_queue.put(example) # place the Example in the example queue.
+
+      assert 1 == 2
 
 
   def fill_batch_queue(self):

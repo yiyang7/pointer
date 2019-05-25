@@ -78,7 +78,9 @@ class BeamSearchDecoder(object):
     """Decode examples until data is exhausted (if FLAGS.single_pass) and return, or decode indefinitely, loading latest checkpoint at regular intervals"""
     t0 = time.time()
     counter = 0
+    print ("decode while loop")
     while True:
+      
       batch = self._batcher.next_batch()  # 1 example repeated across batch
       if batch is None: # finished decoding dataset in single_pass mode
         assert FLAGS.single_pass, "Dataset exhausted, but we are not in single_pass mode"
@@ -89,28 +91,41 @@ class BeamSearchDecoder(object):
         return
 
       original_article = batch.original_articles[0]  # string
+      print ("decode original_article: ", original_article)
       original_abstract = batch.original_abstracts[0]  # string
+      print ("decode original_abstract: ", original_abstract)
       original_abstract_sents = batch.original_abstracts_sents[0]  # list of strings
-
+      print ("decode original_abstract_sents: ", original_abstract_sents)
+    
       article_withunks = data.show_art_oovs(original_article, self._vocab) # string
+      print ("decode article_withunks: ", article_withunks)
       abstract_withunks = data.show_abs_oovs(original_abstract, self._vocab, (batch.art_oovs[0] if FLAGS.pointer_gen else None)) # string
+      print ("decode abstract_withunks: ", abstract_withunks)
 
       # Run beam search to get best Hypothesis
       best_hyp = beam_search.run_beam_search(self._sess, self._model, self._vocab, batch)
+      print ("decode best_hyp: ", best_hyp)
 
       # Extract the output ids from the hypothesis and convert back to words
       output_ids = [int(t) for t in best_hyp.tokens[1:]]
+      print ("decode output_ids: ", output_ids)
       decoded_words = data.outputids2words(output_ids, self._vocab, (batch.art_oovs[0] if FLAGS.pointer_gen else None))
+      print ("decode decoded_words: ", decoded_words)
 
       # Remove the [STOP] token from decoded_words, if necessary
       try:
         fst_stop_idx = decoded_words.index(data.STOP_DECODING) # index of the (first) [STOP] symbol
         decoded_words = decoded_words[:fst_stop_idx]
+        print ("decode Removed the [STOP] token from decoded_words")
       except ValueError:
         decoded_words = decoded_words
       decoded_output = ' '.join(decoded_words) # single string
+      print ("decode decoded_output: ", decoded_output)
 
       if FLAGS.single_pass:
+        print ("decode original_abstract_sents: ", original_abstract_sents)
+        print ("decode decoded_words: ", decoded_words)
+        print ("decode counter: ", counter)
         self.write_for_rouge(original_abstract_sents, decoded_words, counter) # write ref summary and decoded summary to file, to eval with pyrouge later
         counter += 1 # this is how many examples we've decoded
       else:

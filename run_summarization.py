@@ -312,10 +312,14 @@ def main(unused_argv):
     model = SummarizationModel(hps, vocab)
     run_eval(model, batcher, vocab)
   elif hps.mode.value == 'decode':
+    print ("decode mode...")
     decode_model_hps = hps  # This will be the hyperparameters for the decoder model
     decode_model_hps = hps._replace(max_dec_steps=1) # The model is configured with max_dec_steps=1 because we only ever run one step of the decoder at a time (to do beam search). Note that the batcher is initialized with max_dec_steps equal to e.g. 100 because the batches need to contain the full summaries
+    print ("creating model")
     model = SummarizationModel(decode_model_hps, vocab)
+    print ("creating decoder")
     decoder = BeamSearchDecoder(model, batcher, vocab)
+    print ("start decoding")
     decoder.decode() # decode indefinitely (unless single_pass=True, in which case deocde the dataset exactly once)
   else:
     raise ValueError("The 'mode' flag must be one of train/eval/decode")
