@@ -78,18 +78,22 @@ class BeamSearchDecoder(object):
     """Decode examples until data is exhausted (if FLAGS.single_pass) and return, or decode indefinitely, loading latest checkpoint at regular intervals"""
     t0 = time.time()
     counter = 0
-    print ("decode while loop")
+    tf.logging.info("-decode start while loop")
     while True:
-      
+      tf.logging.info("-decode get batch")
       batch = self._batcher.next_batch()  # 1 example repeated across batch
+      tf.logging.info("-decode batch: ", batch)
       if batch is None: # finished decoding dataset in single_pass mode
+        tf.logging.info("FLAGS.single_pass: ", FLAGS.single_pass)
         assert FLAGS.single_pass, "Dataset exhausted, but we are not in single_pass mode"
         tf.logging.info("Decoder has finished reading dataset for single_pass.")
         tf.logging.info("Output has been saved in %s and %s. Now starting ROUGE eval...", self._rouge_ref_dir, self._rouge_dec_dir)
         results_dict = rouge_eval(self._rouge_ref_dir, self._rouge_dec_dir)
         rouge_log(results_dict, self._decode_dir)
         return
-
+      
+      # continue
+        
       original_article = batch.original_articles[0]  # string
 #       print ("decode original_article: ", original_article)
       original_abstract = batch.original_abstracts[0]  # string
@@ -126,7 +130,7 @@ class BeamSearchDecoder(object):
 #         print ("decode original_abstract_sents: ", original_abstract_sents)
 #         print ("decode decoded_words: ", decoded_words)
 #         print ("decode counter: ", counter)
-        self.write_for_rouge(original_abstract_sents, decoded_words, counter) # write ref summary and decoded summary to file, to eval with pyrouge later
+        self.write_for_rouge([original_article], original_abstract_sents, decoded_words, counter) # write ref summary and decoded summary to file, to eval with pyrouge later
         counter += 1 # this is how many examples we've decoded
       else:
         print_results(article_withunks, abstract_withunks, decoded_output) # log output to screen
@@ -139,7 +143,7 @@ class BeamSearchDecoder(object):
           _ = util.load_ckpt(self._saver, self._sess)
           t0 = time.time()
 
-  def write_for_rouge(self, reference_sents, decoded_words, ex_index):
+  def write_for_rouge(self, article, reference_sents, decoded_words, ex_index):
     """Write output to file in correct format for eval with pyrouge. This is called in single_pass mode.
 
     Args:
@@ -164,9 +168,13 @@ class BeamSearchDecoder(object):
     reference_sents = [make_html_safe(w) for w in reference_sents]
 
     # Write to file
+    content_file = os.path.join(self._rouge_ref_dir, "%06d_content.txt" % ex_index)
     ref_file = os.path.join(self._rouge_ref_dir, "%06d_reference.txt" % ex_index)
     decoded_file = os.path.join(self._rouge_dec_dir, "%06d_decoded.txt" % ex_index)
 
+    with open(content_file, "w") as f:
+      for idx,sent in enumerate(article):
+        f.write(sent) if idx==len(article)-1 else f.write(sent+"\n")
     with open(ref_file, "w") as f:
       for idx,sent in enumerate(reference_sents):
         f.write(sent) if idx==len(reference_sents)-1 else f.write(sent+"\n")

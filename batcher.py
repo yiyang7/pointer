@@ -231,6 +231,8 @@ class Batcher(object):
       hps: hyperparameters
       single_pass: If True, run through the dataset exactly once (useful for when you want to run evaluation on the dev or test set). Otherwise generate random batches indefinitely (useful for training).
     """
+    print ("data_path: ", data_path)
+    print ("single_pass: ", single_pass)
     self._data_path = data_path
     self._vocab = vocab
     self._hps = hps
@@ -248,9 +250,9 @@ class Batcher(object):
       self._bucketing_cache_size = 1 # only load one batch's worth of examples before bucketing; this essentially means no bucketing
       self._finished_reading = False # this will tell us when we're finished reading the dataset
     else:
-      self._num_example_q_threads = 16 # num threads to fill example queue
-      self._num_batch_q_threads = 4  # num threads to fill batch queue
-      self._bucketing_cache_size = 100 # how many batches-worth of examples to load into cache before bucketing
+      self._num_example_q_threads = 1 #16 # num threads to fill example queue
+      self._num_batch_q_threads = 1 #4  # num threads to fill batch queue
+      self._bucketing_cache_size = 1 #100 # how many batches-worth of examples to load into cache before bucketing
 
     # Start the threads that load the queues
     self._example_q_threads = []
@@ -282,6 +284,8 @@ class Batcher(object):
     # If the batch queue is empty, print a warning
     if self._batch_queue.qsize() == 0:
       tf.logging.warning('Bucket input queue is empty when calling next_batch. Bucket queue size: %i, Input queue size: %i', self._batch_queue.qsize(), self._example_queue.qsize())
+      print ("self._single_pass: ", self._single_pass)
+      print ("self._finished_reading: ", self._finished_reading)
       if self._single_pass and self._finished_reading:
         tf.logging.info("Finished reading dataset in single_pass mode.")
         return None
@@ -293,19 +297,20 @@ class Batcher(object):
     """Reads data from file and processes into Examples which are then placed into the example queue."""
 
     input_gen = self.text_generator(data.example_generator(self._data_path, self._single_pass))
-#     print ("batcher input_gen: ", input_gen)
+    print ("-batcher input_gen: ", input_gen)
 
     while True:
       try:
         (article, abstract) = next(input_gen) # read the next example from file. article and abstract are both strings.
-#         print ("batcher article: ", article)
-#         print ("batcher abstract: ", abstract)
+        print ("batcher article: ", article)
+        print ("batcher abstract: ", abstract)
         article = article.decode("utf-8")
         abstract = abstract.decode("utf-8")
 #         print ("batcher after utf-8")
 #         print ("batcher article: ", article)
 #         print ("batcher abstract: ", abstract)
       except StopIteration: # if there are no more examples:
+        print ("-batcher Exception")
         tf.logging.info("The example generator for this example queue filling thread has exhausted data.")
         if self._single_pass:
           tf.logging.info("single_pass mode is on, so we've finished reading dataset. This thread is stopping.")
@@ -377,7 +382,10 @@ class Batcher(object):
     Args:
       example_generator: a generator of tf.Examples from file. See data.example_generator"""
     while True:
-      e = next(example_generator) # e is a tf.Example
+      try:
+        e = next(example_generator) # e is a tf.Example
+      except:
+        return
       try:
         article_text = e.features.feature['article'].bytes_list.value[0] # the article text was saved under the key 'article' in the data files
         abstract_text = e.features.feature['abstract'].bytes_list.value[0] # the abstract text was saved under the key 'abstract' in the data files
