@@ -68,6 +68,8 @@ class BeamSearchDecoder(object):
 
     if FLAGS.single_pass:
       # Make the dirs to contain output written in the correct format for pyrouge
+      self._rouge_cont_dir = os.path.join(self._decode_dir, "content")
+      if not os.path.exists(self._rouge_cont_dir): os.mkdir(self._rouge_cont_dir)
       self._rouge_ref_dir = os.path.join(self._decode_dir, "reference")
       if not os.path.exists(self._rouge_ref_dir): os.mkdir(self._rouge_ref_dir)
       self._rouge_dec_dir = os.path.join(self._decode_dir, "decoded")
@@ -88,8 +90,8 @@ class BeamSearchDecoder(object):
         assert FLAGS.single_pass, "Dataset exhausted, but we are not in single_pass mode"
         tf.logging.info("Decoder has finished reading dataset for single_pass.")
         tf.logging.info("Output has been saved in %s and %s. Now starting ROUGE eval...", self._rouge_ref_dir, self._rouge_dec_dir)
-        results_dict = rouge_eval(self._rouge_ref_dir, self._rouge_dec_dir)
-        rouge_log(results_dict, self._decode_dir)
+#         results_dict = rouge_eval(self._rouge_ref_dir, self._rouge_dec_dir)
+#         rouge_log(results_dict, self._decode_dir)
         return
       
       # continue
@@ -168,7 +170,7 @@ class BeamSearchDecoder(object):
     reference_sents = [make_html_safe(w) for w in reference_sents]
 
     # Write to file
-    content_file = os.path.join(self._rouge_ref_dir, "%06d_content.txt" % ex_index)
+    content_file = os.path.join(self._rouge_cont_dir, "%06d_content.txt" % ex_index)
     ref_file = os.path.join(self._rouge_ref_dir, "%06d_reference.txt" % ex_index)
     decoded_file = os.path.join(self._rouge_dec_dir, "%06d_decoded.txt" % ex_index)
 

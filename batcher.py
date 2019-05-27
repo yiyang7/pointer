@@ -231,8 +231,8 @@ class Batcher(object):
       hps: hyperparameters
       single_pass: If True, run through the dataset exactly once (useful for when you want to run evaluation on the dev or test set). Otherwise generate random batches indefinitely (useful for training).
     """
-    print ("data_path: ", data_path)
-    print ("single_pass: ", single_pass)
+#     print ("data_path: ", data_path)
+#     print ("single_pass: ", single_pass)
     self._data_path = data_path
     self._vocab = vocab
     self._hps = hps
@@ -284,8 +284,8 @@ class Batcher(object):
     # If the batch queue is empty, print a warning
     if self._batch_queue.qsize() == 0:
       tf.logging.warning('Bucket input queue is empty when calling next_batch. Bucket queue size: %i, Input queue size: %i', self._batch_queue.qsize(), self._example_queue.qsize())
-      print ("self._single_pass: ", self._single_pass)
-      print ("self._finished_reading: ", self._finished_reading)
+      # print ("self._single_pass: ", self._single_pass)
+      # print ("self._finished_reading: ", self._finished_reading)
       if self._single_pass and self._finished_reading:
         tf.logging.info("Finished reading dataset in single_pass mode.")
         return None
@@ -297,20 +297,20 @@ class Batcher(object):
     """Reads data from file and processes into Examples which are then placed into the example queue."""
 
     input_gen = self.text_generator(data.example_generator(self._data_path, self._single_pass))
-    print ("-batcher input_gen: ", input_gen)
+    # print ("-batcher input_gen: ", input_gen)
 
     while True:
       try:
         (article, abstract) = next(input_gen) # read the next example from file. article and abstract are both strings.
-        print ("batcher article: ", article)
-        print ("batcher abstract: ", abstract)
+        # print ("batcher article: ", article)
+        # print ("batcher abstract: ", abstract)
         article = article.decode("utf-8")
         abstract = abstract.decode("utf-8")
 #         print ("batcher after utf-8")
 #         print ("batcher article: ", article)
 #         print ("batcher abstract: ", abstract)
       except StopIteration: # if there are no more examples:
-        print ("-batcher Exception")
+        # print ("-batcher Exception")
         tf.logging.info("The example generator for this example queue filling thread has exhausted data.")
         if self._single_pass:
           tf.logging.info("single_pass mode is on, so we've finished reading dataset. This thread is stopping.")
