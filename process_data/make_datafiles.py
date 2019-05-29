@@ -32,7 +32,7 @@ CHUNK_SIZE = 1000 # num examples per chunk, for the chunked data
 
 
 def chunk_file(chunks_dir, finished_files_dir, set_name):
-  in_file = finished_files_dir + '%s.bin' % set_name
+  in_file = os.path.join(finished_files_dir + '%s.bin' % set_name)
   reader = open(in_file, "rb")
   chunk = 0
   finished = False
@@ -157,13 +157,15 @@ def get_art_abs(story_file):
 def write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, out_file, flag, makevocab=False):
   """Reads the tokenized .story files corresponding to the urls listed in the url_file and writes them to a out_file."""
   
+  tag, _ = stories_dir.split("_")
+  
   story_f = None
   if flag == "train":
-    story_f = open("AskReddit_trainlist.txt","r")
+    story_f = open(tag+"_trainlist.txt","r")
   elif flag == "val":
-    story_f = open("AskReddit_vallist.txt","r")
+    story_f = open(tag+"_vallist.txt","r")
   elif flag == "test":
-    story_f = open("AskReddit_testlist.txt","r")
+    story_f = open(tag+"_testlist.txt","r")
     
   story_fnames = story_f.readlines()
   num_stories = len(story_fnames)
@@ -196,8 +198,8 @@ def write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, out_fil
       article, abstract = get_art_abs(story_file)
       article = bytes(article, 'utf-8')
       abstract = bytes(abstract, 'utf-8')
-      print ("write_to_bin article: ", article)
-      print ("write_to_bin abstract: ", abstract)
+#       print ("write_to_bin article: ", article)
+#       print ("write_to_bin abstract: ", abstract)
       
       # Write to tf.Example
       tf_example = example_pb2.Example()
@@ -262,11 +264,11 @@ if __name__ == '__main__':
   if not os.path.exists(finished_files_dir): os.makedirs(finished_files_dir)
 
   # Run stanford tokenizer on both stories dirs, outputting to tokenized stories directories
-#   tokenize_stories(stories_dir, tokenized_stories_dir)
+  tokenize_stories(stories_dir, tokenized_stories_dir)
 
   # Read the tokenized stories, do a little postprocessing then write to bin files
-#   write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "train.bin"), "train", makevocab=True)
-#   write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "val.bin"), "val")
+  write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "train.bin"), "train", makevocab=True)
+  write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "val.bin"), "val")
   write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, os.path.join(finished_files_dir, "test.bin"), "test")
 
   # Chunk the data. This splits each of train.bin, val.bin and test.bin into smaller chunks, each containing e.g. 1000 examples, and saves them in finished_files/chunks
