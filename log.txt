@@ -1,0 +1,8 @@
+max_size of vocab was specified as 50000; we now have 50000 words. Stopping reading.
+Finished constructing vocabulary of 50000 total words. Last word added: choreographing
+creating model...
+train_data_path:  ../new_relationships/finished_relationships_story/chunked/train_*
+eval_data_path:  ../new_relationships/finished_relationships_story/chunked/val_*
+max_dec_steps:  100
+Writing word embedding metadata file to log/relationships_exp/train/vocab_metadata.tsv...
+hps.coverage:  False

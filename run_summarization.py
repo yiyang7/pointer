@@ -46,9 +46,9 @@ tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be sa
 # Hyperparameters
 tf.app.flags.DEFINE_integer('hidden_dim', 256, 'dimension of RNN hidden states')
 tf.app.flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings')
-tf.app.flags.DEFINE_integer('batch_size', 4, 'minibatch size')
-tf.app.flags.DEFINE_integer('max_enc_steps', 400, 'max timesteps of encoder (max source text tokens)')
-tf.app.flags.DEFINE_integer('max_dec_steps', 100, 'max timesteps of decoder (max summary tokens)')
+tf.app.flags.DEFINE_integer('batch_size', 16, 'minibatch size')
+tf.app.flags.DEFINE_integer('max_enc_steps', 200, 'max timesteps of encoder (max source text tokens)')
+tf.app.flags.DEFINE_integer('max_dec_steps', 2, 'max timesteps of decoder (max summary tokens)')
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
 tf.app.flags.DEFINE_integer('min_dec_steps', 35, 'Minimum sequence length of generated summary. Applies only for beam search decoding mode')
 tf.app.flags.DEFINE_integer('vocab_size', 50000, 'Size of vocabulary. These will be read from the vocabulary file in order. If the vocabulary file contains fewer words than this number, or if this number is set to 0, will take all words in the vocabulary file.')
@@ -150,7 +150,7 @@ def convert_to_coverage_model():
   exit()
 
 
-def setup_training(model, train_batcher, eval_batcher):
+def setup_training(model, batcher):
   """Does setup before starting training (run_training)"""
   train_dir = os.path.join(FLAGS.log_root, "train")
   if not os.path.exists(train_dir): os.makedirs(train_dir)
@@ -170,94 +170,74 @@ def setup_training(model, train_batcher, eval_batcher):
                      save_summaries_secs=60, # save summaries for tensorboard every 60 secs
                      save_model_secs=60, # checkpoint every 60 secs
                      global_step=model.global_step)
-  train_writer = sv.summary_writer
+  summary_writer = sv.summary_writer
   tf.logging.info("Preparing or waiting for session...")
   sess_context_manager = sv.prepare_or_wait_for_session(config=util.get_config())
   tf.logging.info("Created session.")
-#   exit()
   try:
-    run_training(model, train_batcher, eval_batcher, sess_context_manager, sv, train_writer, saver) # this is an infinite loop until interrupted
+    run_training(model, batcher, sess_context_manager, sv, summary_writer) # this is an infinite loop until interrupted
   except KeyboardInterrupt:
     tf.logging.info("Caught keyboard interrupt on worker. Stopping supervisor...")
     sv.stop()
 
 
-def run_training(model, train_batcher, eval_batcher, sess_context_manager, sv, train_writer, saver):
+def run_training(model, batcher, sess_context_manager, sv, summary_writer):
   """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
   tf.logging.info("starting run_training")
-  with sess_context_manager as sess:
-    # eval set up
-    eval_dir = os.path.join(FLAGS.log_root, "eval") # make a subdir of the root dir for eval data
-    bestmodel_save_path = os.path.join(eval_dir, 'bestmodel') # this is where checkpoints of best models are saved
-    eval_writer = tf.summary.FileWriter(eval_dir)
-    running_avg_loss = 0 # the eval job keeps a smoother, running average loss to tell it when to implement early stopping
-    best_loss = None  # will hold the best loss achieved so far
 
+  sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
+
+  with sess_context_manager as sess:
     if FLAGS.debug: # start the tensorflow debugger
       sess = tf_debug.LocalCLIDebugWrapperSession(sess)
       sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
-    count = 1
     while True: # repeats until interrupted
-      train_batch = train_batcher.next_batch()
+      batch = batcher.next_batch()
 
-      tf.logging.info('running training step %i', count)
-#       t0=time.time()
-      train_res = model.run_train_step(sess, train_batch)
-#       t1=time.time()
-#       tf.logging.info('seconds for training step: %.3f', t1-t0)
+      tf.logging.info('running training step...')
+      t0=time.time()
+      results = model.run_train_step(sess, batch)
+      t1=time.time()
+      tf.logging.info('seconds for training step: %.3f', t1-t0)
 
-      train_loss = train_res['loss']
-      tf.logging.info('loss: %f', train_loss) # print the loss to screen
+      loss = results['loss']
+      tf.logging.info('loss: %f', loss) # print the loss to screen
 
-      if not np.isfinite(train_loss):
+      if not np.isfinite(loss):
         raise Exception("Loss is not finite. Stopping.")
 
       if FLAGS.coverage:
-        train_coverage_loss = train_res['coverage_loss']
-        tf.logging.info("train_coverage_loss: %f", train_coverage_loss) # print the coverage loss to screen
+        coverage_loss = results['coverage_loss']
+        tf.logging.info("coverage_loss: %f", coverage_loss) # print the coverage loss to screen
 
       # get the summaries and iteration number so we can write summaries to tensorboard
-      train_summaries = train_res['summaries'] # we will write these summaries to tensorboard using summary_writer
-      train_step = train_res['global_step'] # we need this to update our running average loss
+      summaries = results['summaries'] # we will write these summaries to tensorboard using summary_writer
+      train_step = results['global_step'] # we need this to update our running average loss
 
-      train_writer.add_summary(train_summaries, train_step) # write the summaries
-      if train_step % 2 == 0: # flush the summary writer every so often
-        tf.logging.info('running evaluation step...')
-        _ = util.load_ckpt(saver, sess) # load a new checkpoint
-        eval_batch = eval_batcher.next_batch() # get the next batch
-        eval_res = model.run_eval_step(sess, eval_batch)
-        
-        eval_loss = eval_res['loss']
-        tf.logging.info('eval loss: %f', eval_loss)
-        eval_summaries = eval_res['summaries']
-        eval_step = eval_res['global_step']
-        eval_writer.add_summary(eval_summaries, eval_step)
-        running_avg_loss = calc_running_avg_loss(np.asscalar(eval_loss), running_avg_loss, eval_writer, eval_step)
-        if best_loss is None or running_avg_loss < best_loss:
-          tf.logging.info('Found new best model with %.3f running_avg_loss. Saving to %s', running_avg_loss, bestmodel_save_path)
-          saver.save(sess, bestmodel_save_path, global_step=eval_step, latest_filename='checkpoint_best')
-          best_loss = running_avg_loss
-
-        train_writer.flush()
-        eval_writer.flush()
-      count += 1
+      summary_writer.add_summary(summaries, train_step) # write the summaries
+      if train_step % 100 == 0: # flush the summary writer every so often
+        summary_writer.flush()
 
 
 def run_eval(model, batcher, vocab):
   """Repeatedly runs eval iterations, logging to screen and writing summaries. Saves the model with the best loss seen so far."""
+  print ("run eval")
   model.build_graph() # build the graph
+  print ("get saver")
   saver = tf.train.Saver(max_to_keep=3) # we will keep 3 best checkpoints at a time
+  print ("create session")
   sess = tf.Session(config=util.get_config())
   eval_dir = os.path.join(FLAGS.log_root, "eval") # make a subdir of the root dir for eval data
   bestmodel_save_path = os.path.join(eval_dir, 'bestmodel') # this is where checkpoints of best models are saved
   summary_writer = tf.summary.FileWriter(eval_dir)
   running_avg_loss = 0 # the eval job keeps a smoother, running average loss to tell it when to implement early stopping
   best_loss = None  # will hold the best loss achieved so far
-
+  print("start while")
   while True:
     _ = util.load_ckpt(saver, sess) # load a new checkpoint
+    print ("load new checkpoint")
     batch = batcher.next_batch() # get the next batch
-
+    print ("batch: ", batch)
     # run eval on the batch
     t0=time.time()
     results = model.run_eval_step(sess, batch)
@@ -337,13 +317,13 @@ def main(unused_argv):
   if hps.mode.value == 'train':
     print ("creating model...")
     train_data_path = FLAGS.data_path
-    eval_data_path = FLAGS.data_path[:-7]+"val_*"
-    print("train_data_path: ", train_data_path)
-    print("eval_data_path: ", eval_data_path)
+    # eval_data_path = FLAGS.data_path[:-7]+"val_*"
+    # print("train_data_path: ", train_data_path)
+    # print("eval_data_path: ", eval_data_path)
     model = SummarizationModel(hps, vocab)
     train_batcher = Batcher(train_data_path, vocab, hps, single_pass=FLAGS.single_pass)
-    eval_batcher = Batcher(eval_data_path, vocab, hps, single_pass=FLAGS.single_pass)
-    setup_training(model, train_batcher, eval_batcher)
+    # eval_batcher = Batcher(eval_data_path, vocab, hps, single_pass=FLAGS.single_pass)
+    setup_training(model, train_batcher)
   elif hps.mode.value == 'eval':
     model = SummarizationModel(hps, vocab)
     run_eval(model, batcher, vocab)
