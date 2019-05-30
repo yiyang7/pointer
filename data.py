@@ -229,7 +229,6 @@ def abstract2sents(abstract):
     sents: List of sentence strings (no tags)"""
   cur = 0
   sents = []
-#   abstract = str(abstract)
   while True:
     try:
       start_p = abstract.index(SENTENCE_START, cur)

@@ -44,11 +44,11 @@ tf.app.flags.DEFINE_string('log_root', '', 'Root directory for all logging.')
 tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be saved in a directory with this name, under log_root.')
 
 # Hyperparameters
-tf.app.flags.DEFINE_integer('hidden_dim', 256, 'dimension of RNN hidden states')
-tf.app.flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings')
-tf.app.flags.DEFINE_integer('batch_size', 8, 'minibatch size')
-tf.app.flags.DEFINE_integer('max_enc_steps', 400, 'max timesteps of encoder (max source text tokens)')
-tf.app.flags.DEFINE_integer('max_dec_steps', 100, 'max timesteps of decoder (max summary tokens)')
+tf.app.flags.DEFINE_integer('hidden_dim', 64, 'dimension of RNN hidden states')
+tf.app.flags.DEFINE_integer('emb_dim', 32, 'dimension of word embeddings')
+tf.app.flags.DEFINE_integer('batch_size', 16, 'minibatch size')
+tf.app.flags.DEFINE_integer('max_enc_steps', 100, 'max timesteps of encoder (max source text tokens)')
+tf.app.flags.DEFINE_integer('max_dec_steps', 25, 'max timesteps of decoder (max summary tokens)')
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
 tf.app.flags.DEFINE_integer('min_dec_steps', 35, 'Minimum sequence length of generated summary. Applies only for beam search decoding mode')
 tf.app.flags.DEFINE_integer('vocab_size', 50000, 'Size of vocabulary. These will be read from the vocabulary file in order. If the vocabulary file contains fewer words than this number, or if this number is set to 0, will take all words in the vocabulary file.')
@@ -184,9 +184,6 @@ def setup_training(model, batcher):
 def run_training(model, batcher, sess_context_manager, sv, summary_writer):
   """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
   tf.logging.info("starting run_training")
-
-  sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
-
   with sess_context_manager as sess:
     if FLAGS.debug: # start the tensorflow debugger
       sess = tf_debug.LocalCLIDebugWrapperSession(sess)
@@ -221,23 +218,19 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
 
 def run_eval(model, batcher, vocab):
   """Repeatedly runs eval iterations, logging to screen and writing summaries. Saves the model with the best loss seen so far."""
-  print ("run eval")
   model.build_graph() # build the graph
-  print ("get saver")
   saver = tf.train.Saver(max_to_keep=3) # we will keep 3 best checkpoints at a time
-  print ("create session")
   sess = tf.Session(config=util.get_config())
   eval_dir = os.path.join(FLAGS.log_root, "eval") # make a subdir of the root dir for eval data
   bestmodel_save_path = os.path.join(eval_dir, 'bestmodel') # this is where checkpoints of best models are saved
   summary_writer = tf.summary.FileWriter(eval_dir)
   running_avg_loss = 0 # the eval job keeps a smoother, running average loss to tell it when to implement early stopping
   best_loss = None  # will hold the best loss achieved so far
-  print("start while")
+  count = 0
   while True:
     _ = util.load_ckpt(saver, sess) # load a new checkpoint
-    print ("load new checkpoint")
     batch = batcher.next_batch() # get the next batch
-    print ("batch: ", batch)
+
     # run eval on the batch
     t0=time.time()
     results = model.run_eval_step(sess, batch)
@@ -254,7 +247,14 @@ def run_eval(model, batcher, vocab):
     # add summaries
     summaries = results['summaries']
     train_step = results['global_step']
-    summary_writer.add_summary(summaries, train_step)
+    
+    print ("run_eval train_step: ", train_step)
+    print ("run_eval count : ", count)
+    
+    if count == 0:
+        count = train_step
+#     summary_writer.add_summary(summaries, train_step)
+    summary_writer.add_summary(summaries, count)
 
     # calculate running avg loss
     running_avg_loss = calc_running_avg_loss(np.asscalar(loss), running_avg_loss, summary_writer, train_step)
@@ -267,8 +267,11 @@ def run_eval(model, batcher, vocab):
       best_loss = running_avg_loss
 
     # flush the summary writer every so often
-    if train_step % 100 == 0:
+#     if train_step % 100 == 0:
+    if count % 100 == 0:
       summary_writer.flush()
+    
+    count += 1
 
 
 def main(unused_argv):
@@ -301,14 +304,11 @@ def main(unused_argv):
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
   hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen']
   hps_dict = {}
-#   print("FLAGS.__flags.items: ", FLAGS.__flags.items)
-#   print("FLAGS.__flags.items(): ", FLAGS.__flags.items())
   for key,val in FLAGS.__flags.items(): # for each flag
     if key in hparam_list: # if it's in the list
       hps_dict[key] = val # add it to the dict
-#   print ("hps_dict: ", hps_dict)
   hps = namedtuple("HParams", hps_dict.keys())(**hps_dict)
-#   print ("hps: ", hps)
+
   # Create a batcher object that will create minibatches of data
   batcher = Batcher(FLAGS.data_path, vocab, hps, single_pass=FLAGS.single_pass)
 
@@ -316,26 +316,16 @@ def main(unused_argv):
 
   if hps.mode.value == 'train':
     print ("creating model...")
-    train_data_path = FLAGS.data_path
-    # eval_data_path = FLAGS.data_path[:-7]+"val_*"
-    # print("train_data_path: ", train_data_path)
-    # print("eval_data_path: ", eval_data_path)
     model = SummarizationModel(hps, vocab)
-    train_batcher = Batcher(train_data_path, vocab, hps, single_pass=FLAGS.single_pass)
-    # eval_batcher = Batcher(eval_data_path, vocab, hps, single_pass=FLAGS.single_pass)
-    setup_training(model, train_batcher)
+    setup_training(model, batcher)
   elif hps.mode.value == 'eval':
     model = SummarizationModel(hps, vocab)
     run_eval(model, batcher, vocab)
   elif hps.mode.value == 'decode':
-    print ("decode mode...")
     decode_model_hps = hps  # This will be the hyperparameters for the decoder model
     decode_model_hps = hps._replace(max_dec_steps=1) # The model is configured with max_dec_steps=1 because we only ever run one step of the decoder at a time (to do beam search). Note that the batcher is initialized with max_dec_steps equal to e.g. 100 because the batches need to contain the full summaries
-    print ("creating model")
     model = SummarizationModel(decode_model_hps, vocab)
-    print ("creating decoder")
     decoder = BeamSearchDecoder(model, batcher, vocab)
-    print ("start decoding")
     decoder.decode() # decode indefinitely (unless single_pass=True, in which case deocde the dataset exactly once)
   else:
     raise ValueError("The 'mode' flag must be one of train/eval/decode")
