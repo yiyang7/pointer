@@ -297,7 +297,16 @@ class SummarizationModel(object):
     # Take gradients of the trainable variables w.r.t. the loss function to minimize
     # print("self._hps.coverage: ", type(self._hps.coverage.value))
     loss_to_minimize = self._total_loss if self._hps.coverage else self._loss
-    tvars = tf.trainable_variables()
+    tvars_all = tf.trainable_variables()
+    freeze_vars_enc = tf.trainable_variables(scope='seq2seq/encoder')
+    freeze_vars_dec = tf.trainable_variables(scope='seq2seq/decoder')
+    # print ("tvars: ", len(tvars_all))
+    # print ("freeze_vars_enc: ", len(freeze_vars_enc))
+    # print ("freeze_vars_dec: ", len(freeze_vars_dec))
+
+    tvars = [v for v in tvars_all if v not in freeze_vars_enc and v not in freeze_vars_dec]
+    # print ("tvars: ", len(tvars))
+
     gradients = tf.gradients(loss_to_minimize, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
     # Clip the gradients
@@ -371,6 +380,10 @@ class SummarizationModel(object):
     # dec_in_state is LSTMStateTuple shape ([batch_size,hidden_dim],[batch_size,hidden_dim])
     # Given that the batch is a single example repeated, dec_in_state is identical across the batch so we just take the top row.
     dec_in_state = tf.contrib.rnn.LSTMStateTuple(dec_in_state.c[0], dec_in_state.h[0])
+    
+    # print ("enc_states: ", enc_states)
+    # print ("dec_in_state: ", dec_in_state)
+
     return enc_states, dec_in_state
 
 
