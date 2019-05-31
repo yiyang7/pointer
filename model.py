@@ -95,6 +95,12 @@ class SummarizationModel(object):
       cell_fw = tf.contrib.rnn.LSTMCell(self._hps.hidden_dim.value, initializer=self.rand_unif_init, state_is_tuple=True)
       cell_bw = tf.contrib.rnn.LSTMCell(self._hps.hidden_dim.value, initializer=self.rand_unif_init, state_is_tuple=True)
       (encoder_outputs, (fw_st, bw_st)) = tf.nn.bidirectional_dynamic_rnn(cell_fw, cell_bw, encoder_inputs, dtype=tf.float32, sequence_length=seq_len, swap_memory=True)
+      
+      for one_lstm_cell in[cell_fw,cell_bw]:
+        one_kernel, one_bias = one_lstm_cell.variables
+        tf.summary.histogram("Kernel", one_kernel)
+        tf.summary.histogram("Bias", one_bias)
+
       encoder_outputs = tf.concat(axis=2, values=encoder_outputs) # concatenate the forwards and backwards states
     return encoder_outputs, fw_st, bw_st
 
@@ -141,6 +147,10 @@ class SummarizationModel(object):
     """
     hps = self._hps
     cell = tf.contrib.rnn.LSTMCell(hps.hidden_dim.value, state_is_tuple=True, initializer=self.rand_unif_init)
+
+    one_kernel, one_bias = cell.variables
+    tf.summary.histogram("Kernel", one_kernel)
+    tf.summary.histogram("Bias", one_bias)
 
     # print("hps.coverage: ", hps.coverage.value)
     prev_coverage = self.prev_coverage if hps.mode.value=="decode" and hps.coverage.value else None # In decode mode, we run attention_decoder one step at a time and so need to pass in the previous step's coverage vector each time
@@ -345,6 +355,12 @@ class SummarizationModel(object):
         'loss': self._loss,
         'global_step': self.global_step,
     }
+
+    # print ("tvars_all: ", tf.trainable_variables())
+    # cell_0_weights = [v for v in tf.trainable_variables()
+                  # if v.name == 'seq2seq/encoder/bidirectional_rnn/fw/lstm_cell/kernel:0'][0]
+    # cell_0_weights = tf.Print(cell_0_weights,[cell_0_weights], "cell_0_weights: ")
+
     # print("self._hps.coverage: ", type(self._hps.coverage))
     if self._hps.coverage:
       to_return['coverage_loss'] = self._coverage_loss

@@ -44,11 +44,11 @@ tf.app.flags.DEFINE_string('log_root', '', 'Root directory for all logging.')
 tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be saved in a directory with this name, under log_root.')
 
 # Hyperparameters
-tf.app.flags.DEFINE_integer('hidden_dim', 64, 'dimension of RNN hidden states')
-tf.app.flags.DEFINE_integer('emb_dim', 32, 'dimension of word embeddings')
+tf.app.flags.DEFINE_integer('hidden_dim', 256, 'dimension of RNN hidden states')
+tf.app.flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings')
 tf.app.flags.DEFINE_integer('batch_size', 16, 'minibatch size')
-tf.app.flags.DEFINE_integer('max_enc_steps', 100, 'max timesteps of encoder (max source text tokens)')
-tf.app.flags.DEFINE_integer('max_dec_steps', 25, 'max timesteps of decoder (max summary tokens)')
+tf.app.flags.DEFINE_integer('max_enc_steps', 400, 'max timesteps of encoder (max source text tokens)')
+tf.app.flags.DEFINE_integer('max_dec_steps', 100, 'max timesteps of decoder (max summary tokens)')
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
 tf.app.flags.DEFINE_integer('min_dec_steps', 35, 'Minimum sequence length of generated summary. Applies only for beam search decoding mode')
 tf.app.flags.DEFINE_integer('vocab_size', 50000, 'Size of vocabulary. These will be read from the vocabulary file in order. If the vocabulary file contains fewer words than this number, or if this number is set to 0, will take all words in the vocabulary file.')
@@ -233,6 +233,7 @@ def run_eval(model, batcher, vocab):
 
     # run eval on the batch
     t0=time.time()
+#     time.sleep(0.2)
     results = model.run_eval_step(sess, batch)
     t1=time.time()
     tf.logging.info('seconds for batch: %.2f', t1-t0)
