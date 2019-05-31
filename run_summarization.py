@@ -72,7 +72,10 @@ tf.app.flags.DEFINE_boolean('restore_best_model', False, 'Restore the best model
 # Debugging. See https://www.tensorflow.org/programmers_guide/debugger
 tf.app.flags.DEFINE_boolean('debug', False, "Run in tensorflow's debug mode (watches for NaN/inf values)")
 
+#fine tune
+tf.app.flags.DEFINE_boolean('fine_tune', False, "Fine Tune")
 
+TRAIN_DATA_SIZE = 169944
 
 def calc_running_avg_loss(loss, running_avg_loss, summary_writer, step, decay=0.99):
   """Calculate the running average loss via exponential decay.
@@ -150,7 +153,7 @@ def convert_to_coverage_model():
   exit()
 
 
-def setup_training(model, batcher):
+def setup_training(model, batcher, hps):
   """Does setup before starting training (run_training)"""
   train_dir = os.path.join(FLAGS.log_root, "train")
   if not os.path.exists(train_dir): os.makedirs(train_dir)
@@ -175,19 +178,20 @@ def setup_training(model, batcher):
   sess_context_manager = sv.prepare_or_wait_for_session(config=util.get_config())
   tf.logging.info("Created session.")
   try:
-    run_training(model, batcher, sess_context_manager, sv, summary_writer) # this is an infinite loop until interrupted
+    run_training(model, batcher, sess_context_manager, sv, summary_writer, hps) # this is an infinite loop until interrupted
   except KeyboardInterrupt:
     tf.logging.info("Caught keyboard interrupt on worker. Stopping supervisor...")
     sv.stop()
 
 
-def run_training(model, batcher, sess_context_manager, sv, summary_writer):
+def run_training(model, batcher, sess_context_manager, sv, summary_writer, hps):
   """Repeatedly runs training iterations, logging loss to screen and writing summaries"""
   tf.logging.info("starting run_training")
   with sess_context_manager as sess:
     if FLAGS.debug: # start the tensorflow debugger
       sess = tf_debug.LocalCLIDebugWrapperSession(sess)
       sess.add_tensor_filter("has_inf_or_nan", tf_debug.has_inf_or_nan)
+    count = 0
     while True: # repeats until interrupted
       batch = batcher.next_batch()
 
@@ -215,6 +219,9 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer):
       if train_step % 100 == 0: # flush the summary writer every so often
         summary_writer.flush()
 
+      if count >= TRAIN_DATA_SIZE:
+        break
+      count += hps.batch_size.value
 
 def run_eval(model, batcher, vocab):
   """Repeatedly runs eval iterations, logging to screen and writing summaries. Saves the model with the best loss seen so far."""
@@ -303,7 +310,7 @@ def main(unused_argv):
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen']
+  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'fine_tune']
   hps_dict = {}
   for key,val in FLAGS.__flags.items(): # for each flag
     if key in hparam_list: # if it's in the list
@@ -318,7 +325,7 @@ def main(unused_argv):
   if hps.mode.value == 'train':
     print ("creating model...")
     model = SummarizationModel(hps, vocab)
-    setup_training(model, batcher)
+    setup_training(model, batcher, hps)
   elif hps.mode.value == 'eval':
     model = SummarizationModel(hps, vocab)
     run_eval(model, batcher, vocab)

@@ -45,6 +45,7 @@ class Example(object):
 
     # Process the article
     article_words = article.split()
+    # print ("__init__ hps.max_enc_steps: ", hps.max_enc_steps) # train flag
     if len(article_words) > hps.max_enc_steps.value:
       article_words = article_words[:hps.max_enc_steps.value]
     self.enc_len = len(article_words) # store the length after truncation but before padding
@@ -60,7 +61,7 @@ class Example(object):
     self.dec_len = len(self.dec_input)
 
     # If using pointer-generator mode, we need to store some extra info
-    # print("batcher hps.pointer_gen: ", hps.pointer_gen.value)
+    # print("__init__ hps.pointer_gen: ", hps.pointer_gen) # train flag
     if hps.pointer_gen.value:
       # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; also store the in-article OOVs words themselves
       self.enc_input_extend_vocab, self.article_oovs = data.article2ids(article_words, vocab)
@@ -69,6 +70,7 @@ class Example(object):
       abs_ids_extend_vocab = data.abstract2ids(abstract_words, vocab, self.article_oovs)
 
       # Overwrite decoder target sequence so it uses the temp article OOV ids
+      # print ("__init__ hps.max_dec_steps: ", hps.max_dec_steps) # train flag
       _, self.target = self.get_dec_inp_targ_seqs(abs_ids_extend_vocab, hps.max_dec_steps.value, start_decoding, stop_decoding)
 
     # Store the original strings
@@ -113,7 +115,7 @@ class Example(object):
     """Pad the encoder input sequence with pad_id up to max_len."""
     while len(self.enc_input) < max_len:
       self.enc_input.append(pad_id)
-    # print("batcher self.hps.pointer_gen: ", self.hps.pointer_gen.value)
+    # print("pad_encoder_input self.hps.pointer_gen: ", self.hps.pointer_gen) # train flag
     if self.hps.pointer_gen.value:
       while len(self.enc_input_extend_vocab) < max_len:
         self.enc_input_extend_vocab.append(pad_id)
@@ -161,6 +163,7 @@ class Batch(object):
 
     # Initialize the numpy arrays
     # Note: our enc_batch can have different length (second dimension) for each batch because we use dynamic_rnn for the encoder.
+    # print ("init_encoder_seq hps.batch_size: ", hps.batch_size) # train flag
     self.enc_batch = np.zeros((hps.batch_size.value, max_enc_seq_len), dtype=np.int32)
     self.enc_lens = np.zeros((hps.batch_size.value), dtype=np.int32)
     self.enc_padding_mask = np.zeros((hps.batch_size.value, max_enc_seq_len), dtype=np.float32)
@@ -173,7 +176,7 @@ class Batch(object):
         self.enc_padding_mask[i][j] = 1
 
     # For pointer-generator mode, need to store some extra info
-    # print("batcher hps.pointer_gen: ", hps.pointer_gen.value)
+    # print("init_encoder_seq hps.pointer_gen: ", hps.pointer_gen) # train flag
     if hps.pointer_gen.value:
       # Determine the max number of in-article OOVs in this batch
       self.max_art_oovs = max([len(ex.article_oovs) for ex in example_list])
@@ -199,6 +202,7 @@ class Batch(object):
 
     # Initialize the numpy arrays.
     # Note: our decoder inputs and targets must be the same length for each batch (second dimension = max_dec_steps) because we do not use a dynamic_rnn for decoding. However I believe this is possible, or will soon be possible, with Tensorflow 1.0, in which case it may be best to upgrade to that.
+    # print ("init_decoder_seq hps.batch_size: ", hps.batch_size) # train flag
     self.dec_batch = np.zeros((hps.batch_size.value, hps.max_dec_steps.value), dtype=np.int32)
     self.target_batch = np.zeros((hps.batch_size.value, hps.max_dec_steps.value), dtype=np.int32)
     self.dec_padding_mask = np.zeros((hps.batch_size.value, hps.max_dec_steps.value), dtype=np.float32)
@@ -240,7 +244,7 @@ class Batcher(object):
 
     # Initialize a queue of Batches waiting to be used, and a queue of Examples waiting to be batched
     self._batch_queue = queue.Queue(self.BATCH_QUEUE_MAX)
-    # print("self._hps.batch_size.value: ", self._hps.batch_size.value)
+    # print("batcher __init__ self._hps.batch_size: ", self._hps.batch_size) # train flag
     self._example_queue = queue.Queue(self.BATCH_QUEUE_MAX * self._hps.batch_size.value)
 
     # Different settings depending on whether we're in single_pass mode or not
@@ -334,9 +338,11 @@ class Batcher(object):
     In decode mode, makes batches that each contain a single example repeated.
     """
     while True:
+      # print ("fill_batch_queue self._hps.mode: ", self._hps.mode) # train flag
       if self._hps.mode.value != 'decode':
         # Get bucketing_cache_size-many batches of Examples into a list, then sort
         inputs = []
+        # print ("fill_batch_queue self._hps.batch_size: ", self._hps.batch_size) # train flag
         for _ in range(self._hps.batch_size.value * self._bucketing_cache_size):
           inputs.append(self._example_queue.get())
         inputs = sorted(inputs, key=lambda inp: inp.enc_len) # sort by length of encoder sequence
