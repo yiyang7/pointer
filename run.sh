@@ -1,0 +1,3 @@
+python run_summarization.py --mode=train --data_path=../finished_relationships_story/chunked/train_* --vocab_path=../finished_relationships_story/vocab --log_root=log --exp_name=test_exp0 --fine_tune=False
+python run_summarization.py --mode=train --data_path=../finished_relationships_story/chunked/train_* --vocab_path=../finished_relationships_story/vocab --log_root=log --exp_name=test_exp1 --fine_tune=False
+python run_summarization.py --mode=train --data_path=../finished_relationships_story/chunked/train_* --vocab_path=../finished_relationships_story/vocab --log_root=log --exp_name=test_exp2 --fine_tune=False

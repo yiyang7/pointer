@@ -228,7 +228,7 @@ class SummarizationModel(object):
       # Some initializers
       # print ("_add_seq2seq hps.rand_unif_init_mag: ", hps.rand_unif_init_mag) #train flag
       self.rand_unif_init = tf.random_uniform_initializer(-hps.rand_unif_init_mag.value, hps.rand_unif_init_mag.value, seed=123)
-      # print ("_add_seq2seq hps.trunc_norm_init_std: ", hps.trunc_norm_init_std)
+      # print ("_add_seq2seq hps.trunc_norm_init_std: ", hps.trunc_norm_init_std) #train flag
       self.trunc_norm_init = tf.truncated_normal_initializer(stddev=hps.trunc_norm_init_std.value)
 
       # Add embedding matrix (shared by the encoder and decoder inputs)
@@ -331,7 +331,7 @@ class SummarizationModel(object):
       print ("train entire model !!!")
       tvars = tvars_all
     
-    print ("tvars: ", tvars)
+    # print ("tvars: ", tvars)
 
     gradients = tf.gradients(loss_to_minimize, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
@@ -394,7 +394,7 @@ class SummarizationModel(object):
         'loss': self._loss,
         'global_step': self.global_step,
     }
-    # print("run_eval_step self._hps.coverage: ", self._hps.coverage)
+    # print("run_eval_step self._hps.coverage: ", self._hps.coverage) # eval flag
     if self._hps.coverage.value:
       to_return['coverage_loss'] = self._coverage_loss
     return sess.run(to_return, feed_dict)
@@ -471,7 +471,7 @@ class SummarizationModel(object):
       feed[self._enc_batch_extend_vocab] = batch.enc_batch_extend_vocab
       feed[self._max_art_oovs] = batch.max_art_oovs
       to_return['p_gens'] = self.p_gens
-    # print("decode_one_step self._hps.coverage: ", self._hps.coverage)
+    # print("decode_one_step self._hps.coverage: ", self._hps.coverage) # decode log
     if self._hps.coverage.value:
       feed[self.prev_coverage] = np.stack(prev_coverage, axis=0)
       to_return['coverage'] = self.coverage
