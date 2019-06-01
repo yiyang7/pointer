@@ -46,7 +46,7 @@ tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be sa
 # Hyperparameters
 tf.app.flags.DEFINE_integer('hidden_dim', 64, 'dimension of RNN hidden states') # 64
 tf.app.flags.DEFINE_integer('emb_dim', 32, 'dimension of word embeddings') # 32
-tf.app.flags.DEFINE_integer('batch_size', 2, 'minibatch size')
+tf.app.flags.DEFINE_integer('batch_size', 16, 'minibatch size')
 tf.app.flags.DEFINE_integer('max_enc_steps', 300, 'max timesteps of encoder (max source text tokens)') # 300
 tf.app.flags.DEFINE_integer('max_dec_steps', 50, 'max timesteps of decoder (max summary tokens)') # 50
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
@@ -75,7 +75,8 @@ tf.app.flags.DEFINE_boolean('debug', False, "Run in tensorflow's debug mode (wat
 #fine tune
 tf.app.flags.DEFINE_boolean('fine_tune', False, "Fine Tune")
 
-TRAIN_DATA_SIZE = 50
+# training set size
+tf.app.flags.DEFINE_integer('train_size', 0, 'size of training set')
 
 # 10 1k training set size 10,000 
 # realtionships training set size 169944
@@ -222,10 +223,11 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer, hps):
       summary_writer.add_summary(summaries, train_step) # write the summaries
       if train_step % 100 == 0: # flush the summary writer every so often
         summary_writer.flush()
-
-      if count >= TRAIN_DATA_SIZE:
-        break
+      
       count += hps.batch_size.value
+      if count >= hps.train_size.value:
+        break
+      
 
 def run_eval(model, batcher, vocab):
   """Repeatedly runs eval iterations, logging to screen and writing summaries. Saves the model with the best loss seen so far."""
@@ -314,7 +316,7 @@ def main(unused_argv):
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'fine_tune']
+  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'fine_tune', 'train_size']
   hps_dict = {}
   for key,val in FLAGS.__flags.items(): # for each flag
     if key in hparam_list: # if it's in the list

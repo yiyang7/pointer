@@ -2,6 +2,7 @@ import jsonlines
 import os
 import numpy as np
 import re
+import shutil
 
 # create a .story file and save it to the directory save_dir:
 def create_story_file(input_dict, save_dir):
