@@ -45,13 +45,19 @@ class Example(object):
 
     # Process the article
     article_words = article.split()
+    # print ("Example __init__ article_words: ", len(article_words))# list of str
     # print ("__init__ hps.max_enc_steps: ", hps.max_enc_steps) # train flag
     if len(article_words) > hps.max_enc_steps.value:
       article_words = article_words[:hps.max_enc_steps.value]
     self.enc_len = len(article_words) # store the length after truncation but before padding
     self.enc_input = [vocab.word2id(w) for w in article_words] # list of word ids; OOVs are represented by the id for UNK token
+    # print ("Example __init__ self.enc_len: ", self.enc_len) # int
+    # print ("Example __init__ self.enc_input: ", len(self.enc_input)) # list of int
 
     # Process the abstract
+    subred_tag = abstract_sentences[0]
+    abstract_sentences = abstract_sentences[1:]
+
     abstract = ' '.join(abstract_sentences) # string
     abstract_words = abstract.split() # list of strings
     abs_ids = [vocab.word2id(w) for w in abstract_words] # list of word ids; OOVs are represented by the id for UNK token
@@ -74,6 +80,7 @@ class Example(object):
       _, self.target = self.get_dec_inp_targ_seqs(abs_ids_extend_vocab, hps.max_dec_steps.value, start_decoding, stop_decoding)
 
     # Store the original strings
+    self.subred_tag = subred_tag
     self.original_article = article
     self.original_abstract = abstract
     self.original_abstract_sents = abstract_sentences
@@ -168,10 +175,15 @@ class Batch(object):
     self.enc_lens = np.zeros((hps.batch_size.value), dtype=np.int32)
     self.enc_padding_mask = np.zeros((hps.batch_size.value, max_enc_seq_len), dtype=np.float32)
 
+    print ("init_encoder_seq define and fill enc_tag_batch")
+    self.enc_tag_batch = np.zeros((hps.batch_size.value), dtype=np.int32)
+
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
       self.enc_batch[i, :] = ex.enc_input[:]
       self.enc_lens[i] = ex.enc_len
+
+      self.enc_tag_batch[i] = ex.subred_tag
       for j in range(ex.enc_len):
         self.enc_padding_mask[i][j] = 1
 
@@ -254,9 +266,9 @@ class Batcher(object):
       self._bucketing_cache_size = 1 # only load one batch's worth of examples before bucketing; this essentially means no bucketing
       self._finished_reading = False # this will tell us when we're finished reading the dataset
     else:
-      self._num_example_q_threads = 16 # num threads to fill example queue
-      self._num_batch_q_threads = 4  # num threads to fill batch queue
-      self._bucketing_cache_size = 100 # how many batches-worth of examples to load into cache before bucketing
+      self._num_example_q_threads = 1 #16 # num threads to fill example queue
+      self._num_batch_q_threads = 1 #4  # num threads to fill batch queue
+      self._bucketing_cache_size = 1 #100 # how many batches-worth of examples to load into cache before bucketing
 
     # Start the threads that load the queues
     self._example_q_threads = []

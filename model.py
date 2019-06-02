@@ -45,6 +45,8 @@ class SummarizationModel(object):
       self._enc_batch_extend_vocab = tf.placeholder(tf.int32, [hps.batch_size.value, None], name='enc_batch_extend_vocab')
       self._max_art_oovs = tf.placeholder(tf.int32, [], name='max_art_oovs')
 
+    self._enc_tag_batch = tf.placeholder(tf.int32, [hps.batch_size.value, None], name='enc_tag_batch')
+
     # decoder part
     # print ("add placeholder hps.mode: ", hps.mode) #train flag
     max_dec_steps = hps.max_dec_steps # ok
@@ -79,6 +81,8 @@ class SummarizationModel(object):
       feed_dict[self._dec_batch] = batch.dec_batch
       feed_dict[self._target_batch] = batch.target_batch
       feed_dict[self._dec_padding_mask] = batch.dec_padding_mask
+    
+    feed_dict[self._enc_tag_batch] = batch.enc_tag_batch
     return feed_dict
 
   def _add_encoder(self, encoder_inputs, seq_len):
@@ -236,12 +240,24 @@ class SummarizationModel(object):
         # print ("_add_seq2seq hps.emb_dim: ", hps.emb_dim) #train flag
         embedding = tf.get_variable('embedding', [vsize, hps.emb_dim.value], dtype=tf.float32, initializer=self.trunc_norm_init)
         # print ("_add_seq2seq hps.mode: ", hps.mode) #train flag
+        # print ("_add_seq2seq embedding: ", embedding.shape) # (50k, 32)
         if hps.mode.value=="train": self._add_emb_vis(embedding) # add to tensorboard
         emb_enc_inputs = tf.nn.embedding_lookup(embedding, self._enc_batch) # tensor with shape (batch_size, max_enc_steps, emb_size)
+        # print ("_add_seq2seq emb_enc_inputs: ", emb_enc_inputs.shape) # (batch_size, ?, 32)
+        embedding_doc = tf.get_variable('embedding_doc', [hps.subred_size.value, hps.emb_dim.value], dtype=tf.float32, initializer=self.trunc_norm_init)
+        # print ("_add_seq2seq embedding_doc: ", embedding_doc.shape) # (10, 32)
+        # print ("_add_seq2seq self._enc_tag_batch: ", self._enc_tag_batch) 
+        emb_enc_doc = tf.nn.embedding_lookup(embedding_doc, self._enc_tag_batch) # (batch_size, emb_doc_size)
+        # print ("_add_seq2seq emb_enc_doc: ", emb_enc_doc.shape) # (batch_size, ?, emb_doc_size)
+        # emb_enc_doc = tf.expand_dims(emb_enc_doc, 1) # (batch_size, 1, emb_doc_size)
+        # print ("_add_seq2seq after expand dims emb_enc_doc: ", emb_enc_doc.shape)
+        emb_enc_inputs_combine = tf.concat([emb_enc_inputs, emb_enc_doc], 2) # (batch_size, max_enc_steps (?), emb_size+emb_doc_size)
+        # print ("_add_seq2seq emb_enc_inputs_combine: ", emb_enc_inputs_combine.shape)
+
         emb_dec_inputs = [tf.nn.embedding_lookup(embedding, x) for x in tf.unstack(self._dec_batch, axis=1)] # list length max_dec_steps containing shape (batch_size, emb_size)
 
       # Add the encoder.
-      enc_outputs, fw_st, bw_st = self._add_encoder(emb_enc_inputs, self._enc_lens)
+      enc_outputs, fw_st, bw_st = self._add_encoder(emb_enc_inputs_combine, self._enc_lens)
       self._enc_states = enc_outputs
 
       # Our encoder is bidirectional and our decoder is unidirectional so we need to reduce the final encoder hidden state to the right size to be the initial decoder hidden state
@@ -369,6 +385,7 @@ class SummarizationModel(object):
   def run_train_step(self, sess, batch):
     """Runs one training iteration. Returns a dictionary containing train op, summaries, loss, global_step and (optionally) coverage loss."""
     feed_dict = self._make_feed_dict(batch)
+    print ("run_train_step feed_dict: ", feed_dict)
     to_return = {
         'train_op': self._train_op,
         'summaries': self._summaries,
