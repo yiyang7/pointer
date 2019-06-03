@@ -22,18 +22,20 @@ import os
 import tensorflow as tf
 import numpy as np
 from collections import namedtuple
-from data import Vocab
+# from data import Vocab
 from batcher import Batcher
 from model import SummarizationModel
 from decode import BeamSearchDecoder
 import util
 from tensorflow.python import debug as tf_debug
+import json
 
 FLAGS = tf.app.flags.FLAGS
 
 # Where to find data
 tf.app.flags.DEFINE_string('data_path', '', 'Path expression to tf.Example datafiles. Can include wildcards to access multiple datafiles.')
-tf.app.flags.DEFINE_string('vocab_path', '', 'Path expression to text vocabulary file.')
+# tf.app.flags.DEFINE_string('vocab_path', '', 'Path expression to text vocabulary file.')
+tf.app.flags.DEFINE_string('word_emb_path', '', 'Path expression to word embedding file.')
 
 # Important settings
 tf.app.flags.DEFINE_string('mode', 'train', 'must be one of train/eval/decode')
@@ -46,14 +48,14 @@ tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be sa
 # Hyperparameters
 tf.app.flags.DEFINE_integer('hidden_dim', 64, 'dimension of RNN hidden states') # 64
 tf.app.flags.DEFINE_integer('emb_dim', 32, 'dimension of word embeddings') # 32
-tf.app.flags.DEFINE_integer('batch_size', 2, 'minibatch size')
+tf.app.flags.DEFINE_integer('batch_size', 16, 'minibatch size')
 tf.app.flags.DEFINE_integer('max_enc_steps', 300, 'max timesteps of encoder (max source text tokens)') # 300
 tf.app.flags.DEFINE_integer('max_dec_steps', 50, 'max timesteps of decoder (max summary tokens)') # 50
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
 tf.app.flags.DEFINE_integer('min_dec_steps', 10, 'Minimum sequence length of generated summary. Applies only for beam search decoding mode') # 10
-tf.app.flags.DEFINE_integer('vocab_size', 50000, 'Size of vocabulary. These will be read from the vocabulary file in order. If the vocabulary file contains fewer words than this number, or if this number is set to 0, will take all words in the vocabulary file.')
+# tf.app.flags.DEFINE_integer('vocab_size', 1193516, 'Size of vocabulary. These will be read from the vocabulary file in order. If the vocabulary file contains fewer words than this number, or if this number is set to 0, will take all words in the vocabulary file.')
 tf.app.flags.DEFINE_float('lr', 0.15, 'learning rate')
-tf.app.flags.DEFINE_float('adagrad_init_acc', 0.1, 'initial accumulator value for Adagrad')
+tf.app.flags.DEFINE_float('adagrad_init_acc', 0.01, 'initial accumulator value for Adagrad')
 tf.app.flags.DEFINE_float('rand_unif_init_mag', 0.02, 'magnitude for lstm cells random uniform inititalization')
 tf.app.flags.DEFINE_float('trunc_norm_init_std', 1e-4, 'std of trunc norm init, used for initializing everything else')
 tf.app.flags.DEFINE_float('max_grad_norm', 2.0, 'for gradient clipping')
@@ -80,6 +82,9 @@ tf.app.flags.DEFINE_integer('train_size', 0, 'size of training set')
 
 # subreddit size
 tf.app.flags.DEFINE_integer('subred_size', 10, 'size of subreddit')
+# use doc_vec
+tf.app.flags.DEFINE_boolean('use_doc_vec', False, "Use doc_vec")
+
 
 # 10 1k training set size 10,000 
 # realtionships training set size 169944
@@ -201,7 +206,7 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer, hps):
     count = 0
     while True: # repeats until interrupted
       batch = batcher.next_batch()
-      print ("run_training batch: ", batch)
+#       print ("run_training batch: ", batch)
       
       tf.logging.info('running training step...')
       t0=time.time()
@@ -290,6 +295,20 @@ def run_eval(model, batcher, vocab):
     
     count += 1
 
+def tensor_from_json(path, dtype=tf.float32):
+    """Load a PyTorch Tensor from a JSON file.
+    Args:
+        path (str): Path to the JSON file to load.
+        dtype (torch.dtype): Data type of loaded array.
+    Returns:
+        tensor (torch.Tensor): Tensor loaded from JSON file.
+    """
+    with open(path, 'r') as fh:
+        array = np.array(json.load(fh))
+
+    tensor = tf.convert_to_tensor(array, dtype=dtype)
+    return tensor
+
 
 def main(unused_argv):
   if len(unused_argv) != 1: # prints a message if you've entered flags incorrectly
@@ -306,7 +325,10 @@ def main(unused_argv):
     else:
       raise Exception("Logdir %s doesn't exist. Run in train mode to create it." % (FLAGS.log_root))
 
-  vocab = Vocab(FLAGS.vocab_path, FLAGS.vocab_size) # create a vocabulary
+  # vocab = Vocab(FLAGS.vocab_path, FLAGS.vocab_size) # create a vocabulary
+
+  # loading word embedding
+  word_to_index, index_to_embedding = util.load_embedding_from_disks(FLAGS.word_emb_path, with_indexes=True)
 
   # If in decode mode, set batch_size = beam_size
   # Reason: in decode mode, we decode one example at a time.
@@ -319,7 +341,7 @@ def main(unused_argv):
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'fine_tune', 'train_size', 'subred_size']
+  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'fine_tune', 'train_size', 'subred_size', 'use_doc_vec']
   hps_dict = {}
   for key,val in FLAGS.__flags.items(): # for each flag
     if key in hparam_list: # if it's in the list
@@ -327,22 +349,22 @@ def main(unused_argv):
   hps = namedtuple("HParams", hps_dict.keys())(**hps_dict)
 
   # Create a batcher object that will create minibatches of data
-  batcher = Batcher(FLAGS.data_path, vocab, hps, single_pass=FLAGS.single_pass)
+  batcher = Batcher(FLAGS.data_path, word_to_index, index_to_embedding, hps, single_pass=FLAGS.single_pass)
 
-  tf.set_random_seed(111) # a seed value for randomness
+  # tf.set_random_seed(111) # a seed value for randomness
 
   if hps.mode.value == 'train':
     print ("creating model...")
-    model = SummarizationModel(hps, vocab)
+    model = SummarizationModel(hps, word_to_index, index_to_embedding)
     setup_training(model, batcher, hps)
   elif hps.mode.value == 'eval':
-    model = SummarizationModel(hps, vocab)
-    run_eval(model, batcher, vocab)
+    model = SummarizationModel(hps, word_to_index)
+    run_eval(model, batcher, word_to_index)
   elif hps.mode.value == 'decode':
     decode_model_hps = hps  # This will be the hyperparameters for the decoder model
     decode_model_hps = hps._replace(max_dec_steps=1) # The model is configured with max_dec_steps=1 because we only ever run one step of the decoder at a time (to do beam search). Note that the batcher is initialized with max_dec_steps equal to e.g. 100 because the batches need to contain the full summaries
-    model = SummarizationModel(decode_model_hps, vocab)
-    decoder = BeamSearchDecoder(model, batcher, vocab)
+    model = SummarizationModel(decode_model_hps, word_to_index)
+    decoder = BeamSearchDecoder(model, batcher, word_to_index)
     decoder.decode() # decode indefinitely (unless single_pass=True, in which case deocde the dataset exactly once)
   else:
     raise ValueError("The 'mode' flag must be one of train/eval/decode")

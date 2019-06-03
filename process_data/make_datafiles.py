@@ -157,15 +157,15 @@ def get_art_abs(story_file):
 def write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, out_file, flag, makevocab=False):
   """Reads the tokenized .story files corresponding to the urls listed in the url_file and writes them to a out_file."""
   
-  tag, _ = stories_dir.split("_")
+  tag = stories_dir.split("_")[0]
   
   story_f = None
   if flag == "train":
-    story_f = open(tag+"_trainlist.txt","r")
+    story_f = open(tag+"_train_list.txt","r")
   elif flag == "val":
-    story_f = open(tag+"_vallist.txt","r")
+    story_f = open(tag+"_val_list.txt","r")
   elif flag == "test":
-    story_f = open(tag+"_testlist.txt","r")
+    story_f = open(tag+"_test_list.txt","r")
     
   story_fnames = story_f.readlines()
   num_stories = len(story_fnames)
@@ -179,7 +179,7 @@ def write_to_bin(stories_dir, tokenized_stories_dir, finished_files_dir, out_fil
 
   with open(out_file, 'wb') as writer:
     for idx,s in enumerate(story_fnames):
-      if idx % 10000 == 0:
+      if idx % 1000 == 0:
         print ("Writing story %i of %i; %.2f percent done" % (idx, num_stories, float(idx)*100.0/float(num_stories)))
 
       # Look in the tokenized story dirs to find the .story file corresponding to this url

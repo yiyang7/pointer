@@ -51,7 +51,7 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding
   with variable_scope.variable_scope("attention_decoder") as scope:
     batch_size = encoder_states.get_shape()[0].value # if this line fails, it's because the batch size isn't defined
     attn_size = encoder_states.get_shape()[2].value # if this line fails, it's because the attention length isn't defined
-
+    # print ("attention_decoder attn_size: ", attn_size) # 128
     # Reshape encoder_states (need to insert a dim)
     encoder_states = tf.expand_dims(encoder_states, axis=2) # now is shape (batch_size, attn_len, 1, attn_size)
 
@@ -64,7 +64,10 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding
 
     # Get the weight matrix W_h and apply it to each encoder state to get (W_h h_i), the encoder features
     W_h = variable_scope.get_variable("W_h", [1, 1, attn_size, attention_vec_size])
+    # print ("attention_decoder encoder_states: ", encoder_states.shape) # (16, ?, 1, 128)
+    # print ("attention_decoder W_h: ", W_h.shape) # (1, 1, 128, 128)
     encoder_features = nn_ops.conv2d(encoder_states, W_h, [1, 1, 1, 1], "SAME") # shape (batch_size,attn_length,1,attention_vec_size)
+    # print ("attention_decoder encoder_features: ", encoder_features.shape) # (16, ?, 1, 128)
 
     # Get the weight vectors v and w_c (w_c is for coverage)
     v = variable_scope.get_variable("v", [attention_vec_size])
@@ -114,7 +117,11 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding
           coverage += array_ops.reshape(attn_dist, [batch_size, -1, 1, 1])
         else:
           # Calculate v^T tanh(W_h h_i + W_s s_t + b_attn)
+          # print ("attention v: ", v.shape) # (128,)
+          # print ("attention encoder_features: ", encoder_features.shape)  # (16, ?, 1, 128)
+          # print ("attention decoder_features: ", decoder_features.shape) #  (16, 1, 1, 128)
           e = math_ops.reduce_sum(v * math_ops.tanh(encoder_features + decoder_features), [2, 3]) # calculate e
+          # print ("attention e: ", e.shape) # (16, ?)
 
           # Calculate attention distribution
           attn_dist = masked_attention(e)
@@ -125,6 +132,8 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding
         # Calculate the context vector from attn_dist and encoder_states
         context_vector = math_ops.reduce_sum(array_ops.reshape(attn_dist, [batch_size, -1, 1, 1]) * encoder_states, [1, 2]) # shape (batch_size, attn_size).
         context_vector = array_ops.reshape(context_vector, [-1, attn_size])
+      
+      # print ("attention attn_dist: ", attn_dist.shape) # (16, ?)
 
       return context_vector, attn_dist, coverage
 
@@ -177,6 +186,7 @@ def attention_decoder(decoder_inputs, initial_state, encoder_states, enc_padding
     if coverage is not None:
       coverage = array_ops.reshape(coverage, [batch_size, -1])
 
+    # print ("attention_decoder attn_dists[0]: ", attn_dists[0].shape) # (16, ?)
     return outputs, state, attn_dists, p_gens, coverage
 
 

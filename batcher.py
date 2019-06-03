@@ -24,24 +24,34 @@ import numpy as np
 import tensorflow as tf
 import data
 
+SUBRED_TABLE = {"anxiety": 0,
+                "askhistorians": 1,
+                "atheismbot": 2,
+                "dogtraining": 3,
+                "legaladvice": 4,
+                "nfl": 5,
+                "pettyrevenge": 6,
+                "relationships": 7,
+                "shouldibuythisgame": 8,
+                "ukpolitics": 9,}
 
 class Example(object):
   """Class representing a train/val/test example for text summarization."""
 
-  def __init__(self, article, abstract_sentences, vocab, hps):
+  def __init__(self, article, abstract_sentences, word_to_index, hps):
     """Initializes the Example, performing tokenization and truncation to produce the encoder, decoder and target sequences, which are stored in self.
 
     Args:
       article: source text; a string. each token is separated by a single space.
       abstract_sentences: list of strings, one per abstract sentence. In each sentence, each token is separated by a single space.
-      vocab: Vocabulary object
+      word_to_index
       hps: hyperparameters
     """
     self.hps = hps
 
     # Get ids of special tokens
-    start_decoding = vocab.word2id(data.START_DECODING)
-    stop_decoding = vocab.word2id(data.STOP_DECODING)
+    start_decoding = word_to_index[data.START_DECODING.lower()]
+    stop_decoding = word_to_index[data.STOP_DECODING.lower()]
 
     # Process the article
     article_words = article.split()
@@ -50,17 +60,22 @@ class Example(object):
     if len(article_words) > hps.max_enc_steps.value:
       article_words = article_words[:hps.max_enc_steps.value]
     self.enc_len = len(article_words) # store the length after truncation but before padding
-    self.enc_input = [vocab.word2id(w) for w in article_words] # list of word ids; OOVs are represented by the id for UNK token
+    self.enc_input = [word_to_index[w.lower()] for w in article_words] # list of word ids; OOVs are represented by the id for UNK token
     # print ("Example __init__ self.enc_len: ", self.enc_len) # int
     # print ("Example __init__ self.enc_input: ", len(self.enc_input)) # list of int
 
     # Process the abstract
-    subred_tag = abstract_sentences[0]
-    abstract_sentences = abstract_sentences[1:]
+    # print ("abstract_sentences: ", abstract_sentences)
+    if hps.use_doc_vec.value:
+        abstract_sentences_list = abstract_sentences[0].split()
+        subred_tag = abstract_sentences_list[0]
+        # print ("subred_tag: ", subred_tag)
+        abstract_sentences = [' '.join(abstract_sentences_list[1:])]
+        # print ("abstract_sentences: ", abstract_sentences)
 
     abstract = ' '.join(abstract_sentences) # string
     abstract_words = abstract.split() # list of strings
-    abs_ids = [vocab.word2id(w) for w in abstract_words] # list of word ids; OOVs are represented by the id for UNK token
+    abs_ids = [word_to_index[w.lower()] for w in abstract_words] # list of word ids; OOVs are represented by the id for UNK token
 
     # Get the decoder input sequence and target sequence
     self.dec_input, self.target = self.get_dec_inp_targ_seqs(abs_ids, hps.max_dec_steps.value, start_decoding, stop_decoding)
@@ -70,17 +85,18 @@ class Example(object):
     # print("__init__ hps.pointer_gen: ", hps.pointer_gen) # train flag
     if hps.pointer_gen.value:
       # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; also store the in-article OOVs words themselves
-      self.enc_input_extend_vocab, self.article_oovs = data.article2ids(article_words, vocab)
+      self.enc_input_extend_vocab, self.article_oovs = data.article2ids(article_words, word_to_index)
 
       # Get a verison of the reference summary where in-article OOVs are represented by their temporary article OOV id
-      abs_ids_extend_vocab = data.abstract2ids(abstract_words, vocab, self.article_oovs)
+      abs_ids_extend_vocab = data.abstract2ids(abstract_words, word_to_index, self.article_oovs)
 
       # Overwrite decoder target sequence so it uses the temp article OOV ids
       # print ("__init__ hps.max_dec_steps: ", hps.max_dec_steps) # train flag
       _, self.target = self.get_dec_inp_targ_seqs(abs_ids_extend_vocab, hps.max_dec_steps.value, start_decoding, stop_decoding)
 
     # Store the original strings
-    self.subred_tag = subred_tag
+    if hps.use_doc_vec.value:
+        self.subred_tag = SUBRED_TABLE[subred_tag]
     self.original_article = article
     self.original_abstract = abstract
     self.original_abstract_sents = abstract_sentences
@@ -131,7 +147,7 @@ class Example(object):
 class Batch(object):
   """Class representing a minibatch of train/val/test examples for text summarization."""
 
-  def __init__(self, example_list, hps, vocab):
+  def __init__(self, example_list, hps, word_to_index, index_to_embedding):
     """Turns the example_list into a Batch object.
 
     Args:
@@ -139,7 +155,8 @@ class Batch(object):
        hps: hyperparameters
        vocab: Vocabulary object
     """
-    self.pad_id = vocab.word2id(data.PAD_TOKEN) # id of the PAD token used to pad sequences
+    self.pad_id = word_to_index[data.PAD_TOKEN.lower()] # id of the PAD token used to pad sequences
+    self.index_to_embedding = index_to_embedding
     self.init_encoder_seq(example_list, hps) # initialize the input to the encoder
     self.init_decoder_seq(example_list, hps) # initialize the input and targets for the decoder
     self.store_orig_strings(example_list) # store the original strings
@@ -175,17 +192,17 @@ class Batch(object):
     self.enc_lens = np.zeros((hps.batch_size.value), dtype=np.int32)
     self.enc_padding_mask = np.zeros((hps.batch_size.value, max_enc_seq_len), dtype=np.float32)
 
-    print ("init_encoder_seq define and fill enc_tag_batch")
+    # print ("init_encoder_seq define and fill enc_tag_batch")
     self.enc_tag_batch = np.zeros((hps.batch_size.value), dtype=np.int32)
 
     # Fill in the numpy arrays
     for i, ex in enumerate(example_list):
-      self.enc_batch[i, :] = ex.enc_input[:]
-      self.enc_lens[i] = ex.enc_len
-
-      self.enc_tag_batch[i] = ex.subred_tag
-      for j in range(ex.enc_len):
-        self.enc_padding_mask[i][j] = 1
+        self.enc_batch[i, :] = ex.enc_input[:]
+        self.enc_lens[i] = ex.enc_len
+        if hps.use_doc_vec.value:
+            self.enc_tag_batch[i] = ex.subred_tag
+        for j in range(ex.enc_len):
+            self.enc_padding_mask[i][j] = 1
 
     # For pointer-generator mode, need to store some extra info
     # print("init_encoder_seq hps.pointer_gen: ", hps.pointer_gen) # train flag
@@ -238,19 +255,20 @@ class Batcher(object):
 
   BATCH_QUEUE_MAX = 100 # max number of batches the batch_queue can hold
 
-  def __init__(self, data_path, vocab, hps, single_pass):
+  def __init__(self, data_path, word_to_index, index_to_embedding, hps, single_pass):
     """Initialize the batcher. Start threads that process the data into batches.
 
     Args:
       data_path: tf.Example filepattern.
-      vocab: Vocabulary object
+      word_to_index
       hps: hyperparameters
       single_pass: If True, run through the dataset exactly once (useful for when you want to run evaluation on the dev or test set). Otherwise generate random batches indefinitely (useful for training).
     """
 #     print ("data_path: ", data_path)
 #     print ("single_pass: ", single_pass)
     self._data_path = data_path
-    self._vocab = vocab
+    self._word_to_index = word_to_index
+    self._index_to_embedding = index_to_embedding
     self._hps = hps
     self._single_pass = single_pass
 
@@ -337,8 +355,8 @@ class Batcher(object):
 
 #       print ("batcher abstract: ", abstract)
       abstract_sentences = [sent.strip() for sent in data.abstract2sents(abstract)] # Use the <s> and </s> tags in abstract to get a list of sentences.
-#       print ("batcher abstract_sentences: ", abstract_sentences)
-      example = Example(article, abstract_sentences, self._vocab, self._hps) # Process into an Example.
+      # print ("fill_example_queue abstract_sentences: ", abstract_sentences)
+      example = Example(article, abstract_sentences, self._word_to_index, self._hps) # Process into an Example.
       self._example_queue.put(example) # place the Example in the example queue.
 
 #       assert 1 == 2
@@ -366,12 +384,12 @@ class Batcher(object):
         if not self._single_pass:
           shuffle(batches)
         for b in batches:  # each b is a list of Example objects
-          self._batch_queue.put(Batch(b, self._hps, self._vocab))
+          self._batch_queue.put(Batch(b, self._hps, self._word_to_index, self._index_to_embedding))
 
       else: # beam search decode mode
         ex = self._example_queue.get()
         b = [ex for _ in range(self._hps.batch_size.value)]
-        self._batch_queue.put(Batch(b, self._hps, self._vocab))
+        self._batch_queue.put(Batch(b, self._hps, self._word_to_index, self._index_to_embedding))
 
 
   def watch_threads(self):
