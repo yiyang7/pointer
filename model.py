@@ -22,23 +22,23 @@ import numpy as np
 import tensorflow as tf
 from attention_decoder import attention_decoder
 from tensorflow.contrib.tensorboard.plugins import projector
+import sys
 
 FLAGS = tf.app.flags.FLAGS
 
 class SummarizationModel(object):
   """A class to represent a sequence-to-sequence model for text summarization. Supports both baseline mode, pointer-generator mode, and coverage"""
 
-  def __init__(self, hps, word_to_index, index_to_embedding):
+  def __init__(self, hps, vocab):
     self._hps = hps
-    self._word_to_index = word_to_index
-    self._index_to_embedding = index_to_embedding
+    self._vocab = vocab
 
   def _add_placeholders(self):
     """Add placeholders to the graph. These are entry points for any input data."""
     hps = self._hps
 
     # encoder part
-    self._tf_embedding_placeholder = tf.placeholder(tf.float32, shape=self._index_to_embedding.shape)
+    # self._tf_embedding_placeholder = tf.placeholder(tf.float32, shape=self._index_to_embedding.shape)
 
     # print ("add placeholder hps.batch_size: ", hps.batch_size) #train flag
     self._enc_batch = tf.placeholder(tf.int32, [hps.batch_size.value, None], name='enc_batch')
@@ -76,9 +76,6 @@ class SummarizationModel(object):
       just_enc: Boolean. If True, only feed the parts needed for the encoder.
     """
     feed_dict = {}
-    # index_to_embedding
-    feed_dict[self._tf_embedding_placeholder] = batch.index_to_embedding
-
     feed_dict[self._enc_batch] = batch.enc_batch
     feed_dict[self._enc_lens] = batch.enc_lens
     feed_dict[self._enc_padding_mask] = batch.enc_padding_mask
@@ -196,7 +193,7 @@ class SummarizationModel(object):
       attn_dists = [(1-p_gen) * dist for (p_gen,dist) in zip(self.p_gens, attn_dists)]
 
       # Concatenate some zeros to each vocabulary dist, to hold the probabilities for in-article OOV words
-      extended_vsize = len(self._index_to_embedding) + self._max_art_oovs # the maximum (over the batch) size of the extended vocabulary
+      extended_vsize = self._vocab.size() + self._max_art_oovs # the maximum (over the batch) size of the extended vocabulary
       # print ("_calc_final_dist self._hps.batch_size: ", self._hps.batch_size) #train flag
       extra_zeros = tf.zeros((self._hps.batch_size.value, self._max_art_oovs))
       vocab_dists_extended = [tf.concat(axis=1, values=[dist, extra_zeros]) for dist in vocab_dists] # list length max_dec_steps of shape (batch_size, extended_vsize)
@@ -218,30 +215,35 @@ class SummarizationModel(object):
       # Note that for decoder timesteps and examples corresponding to a [PAD] token, this is junk - ignore.
       # print ("_calc_final_dist vocab_dists_extended: ", vocab_dists_extended[0].shape) # (16, ?)
       # print ("_calc_final_dist attn_dists_projected: ", attn_dists_projected[0].shape) # (16, ?)
+      
       final_dists = [vocab_dist + copy_dist for (vocab_dist,copy_dist) in zip(vocab_dists_extended, attn_dists_projected)]
 
+      # def add_epsilon(dist, epsilon=sys.float_info.epsilon):
+      #   epsilon_mask = tf.ones_like(dist) * epsilon
+      #   return dist + epsilon_mask
+
+      # final_dists = [add_epsilon(dist) for dist in final_dists]
+      
       return final_dists
 
   def _add_emb_vis(self, embedding_var):
     """Do setup so that we can view word embedding visualization in Tensorboard, as described here:
     https://www.tensorflow.org/get_started/embedding_viz
     Make the vocab metadata file, then make the projector config file pointing to it."""
-    return
-
-    # train_dir = os.path.join(FLAGS.log_root, "train")
-    # vocab_metadata_path = os.path.join(train_dir, "vocab_metadata.tsv")
-    # self._vocab.write_metadata(vocab_metadata_path) # write metadata file
-    # summary_writer = tf.summary.FileWriter(train_dir)
-    # config = projector.ProjectorConfig()
-    # embedding = config.embeddings.add()
-    # embedding.tensor_name = embedding_var.name
-    # embedding.metadata_path = vocab_metadata_path
-    # projector.visualize_embeddings(summary_writer, config)
+    train_dir = os.path.join(FLAGS.log_root, "train")
+    vocab_metadata_path = os.path.join(train_dir, "vocab_metadata.tsv")
+    self._vocab.write_metadata(vocab_metadata_path) # write metadata file
+    summary_writer = tf.summary.FileWriter(train_dir)
+    config = projector.ProjectorConfig()
+    embedding = config.embeddings.add()
+    embedding.tensor_name = embedding_var.name
+    embedding.metadata_path = vocab_metadata_path
+    projector.visualize_embeddings(summary_writer, config)
 
   def _add_seq2seq(self):
     """Add the whole sequence-to-sequence model to the graph."""
     hps = self._hps
-    vsize = len(self._index_to_embedding) # size of the vocabulary
+    vsize = self._vocab.size() # size of the vocabulary
 
     with tf.variable_scope('seq2seq'):
       # Some initializers
@@ -253,38 +255,40 @@ class SummarizationModel(object):
       # Add embedding matrix (shared by the encoder and decoder inputs)
       with tf.variable_scope('embedding'):
         # print ("_add_seq2seq hps.emb_dim: ", hps.emb_dim) #train flag
-        # embedding = tf.get_variable('embedding', [vsize, hps.emb_dim.value], dtype=tf.float32, initializer=self.trunc_norm_init)
-        tf_embedding = tf.Variable(
-            tf.constant(0.0, shape=self._index_to_embedding.shape),
-            trainable=False,
-            name="embedding")
+        # embedding -> tf_embedding
+        embedding = tf.get_variable('embedding', [vsize, hps.emb_dim.value], dtype=tf.float32, initializer=self.trunc_norm_init)
+        
+        # tf_embedding = tf.Variable(
+        #     tf.constant(0.0, shape=self._index_to_embedding.shape),
+        #     trainable=False,
+        #     name="embedding")
         # print ("_add_seq2seq self._index_to_embedding.shape: ", self._index_to_embedding.shape) # (1193516, 25)
 
-        tf_embedding_init = tf_embedding.assign(self._tf_embedding_placeholder)
+        # tf_embedding_init = tf_embedding.assign(self._tf_embedding_placeholder)
 
         # print ("_add_seq2seq hps.mode: ", hps.mode) #train flag
         # print ("_add_seq2seq tf_embedding: ", tf_embedding.shape) # (1193516, 25)
-        if hps.mode.value=="train": self._add_emb_vis(tf_embedding) # add to tensorboard
-        emb_enc_inputs = tf.nn.embedding_lookup(tf_embedding, self._enc_batch) # tensor with shape (batch_size, max_enc_steps, emb_size)
+        if hps.mode.value=="train": self._add_emb_vis(embedding) # add to tensorboard
+        emb_enc_inputs = tf.nn.embedding_lookup(embedding, self._enc_batch) # tensor with shape (batch_size, max_enc_steps, emb_size)
         # print ("_add_seq2seq emb_enc_inputs: ", emb_enc_inputs.shape) # (16, ?, 25)
         if hps.use_doc_vec.value:
             embedding_doc = tf.get_variable('embedding_doc', [hps.subred_size.value, hps.emb_dim.value], dtype=tf.float32, initializer=self.trunc_norm_init)
-            # print ("_add_seq2seq embedding_doc: ", embedding_doc.shape) # (10, 25)
+            # print ("_add_seq2seq embedding_doc: ", embedding_doc.shape) # (10, 128)
             # print ("_add_seq2seq self._enc_tag_batch: ", self._enc_tag_batch.shape) # (16,)
             tag = tf.expand_dims(self._enc_tag_batch, 1)
             # print ("_add_seq2seq tag: ", tag.shape) # (16,1)
             emb_enc_doc = tf.nn.embedding_lookup(embedding_doc, tag) # self._enc_tag_batch (batch_size, 1)
-            # print ("_add_seq2seq emb_enc_doc: ", emb_enc_doc.shape) # (16, 1, 25)
-            # print ("emb_enc_inputs: ", tf.shape(emb_enc_inputs))
+            # print ("_add_seq2seq emb_enc_doc: ", emb_enc_doc.shape) # (16, 1, 128)
+            # print ("_add_seq2seq emb_enc_inputs: ", tf.shape(emb_enc_inputs)) 
             cur_enc_steps = tf.shape(emb_enc_inputs)[1]
             emb_enc_doc = tf.broadcast_to(emb_enc_doc, [hps.batch_size.value, cur_enc_steps, hps.emb_dim.value])
-            # print ("_add_seq2seq after broadcast_to dims emb_enc_doc: ", emb_enc_doc.shape) # (16, ?, 25)
+            # print ("_add_seq2seq after broadcast_to dims emb_enc_doc: ", emb_enc_doc.shape) # (16, ?, 128)
             emb_enc_inputs_combine = tf.concat([emb_enc_inputs, emb_enc_doc], 2) # (batch_size, 1, emb_size+emb_doc_size)
         else:
             emb_enc_inputs_combine = emb_enc_inputs
-        # print ("_add_seq2seq emb_enc_inputs_combine: ", emb_enc_inputs_combine.shape) # (16, ?, 50)
+        # print ("_add_seq2seq emb_enc_inputs_combine: ", emb_enc_inputs_combine.shape) # (16, ?, 256)
             
-        emb_dec_inputs = [tf.nn.embedding_lookup(tf_embedding, x) for x in tf.unstack(self._dec_batch, axis=1)] # list length max_dec_steps containing shape (batch_size, emb_size)
+        emb_dec_inputs = [tf.nn.embedding_lookup(embedding, x) for x in tf.unstack(self._dec_batch, axis=1)] # list length max_dec_steps containing shape (batch_size, emb_size)
         # print ("_add_seq2seq emb_dec_inputs: ", len(emb_dec_inputs)) # 5
         # print ("_add_seq2seq emb_dec_inputs: ", emb_dec_inputs[0].shape) # (16, 25)
 
@@ -385,15 +389,23 @@ class SummarizationModel(object):
     # print ("_add_train_op self._hps.fine_tune: ", self._hps.fine_tune) #train flag
     tvars = None
     if self._hps.fine_tune.value:
-      print ("freeze encoder and decoder !!!")
+      print ("only train attention layer !!!")
+      freeze_vars_emb = tf.trainable_variables(scope='seq2seq/embedding')
       freeze_vars_enc = tf.trainable_variables(scope='seq2seq/encoder')
-      freeze_vars_dec = tf.trainable_variables(scope='seq2seq/decoder')
-      tvars = [v for v in tvars_all if v not in freeze_vars_enc and v not in freeze_vars_dec]
+      freeze_vars_red = tf.trainable_variables(scope='seq2seq/reduce_final_st')
+      freeze_vars_dec = tf.trainable_variables(scope='seq2seq/decoder/attention_decoder/lstm_cell')
+      freeze_vars_out = tf.trainable_variables(scope='seq2seq/output_projection')
+
+      tvars = [v for v in tvars_all if v not in freeze_vars_emb 
+                                    and v not in freeze_vars_enc
+                                    and v not in freeze_vars_red
+                                    and v not in freeze_vars_dec
+                                    and v not in freeze_vars_out]
     else:
       print ("train entire model !!!")
       tvars = tvars_all
     
-    # print ("tvars: ", tvars)
+    print ("tvars: ", tvars)
 
     gradients = tf.gradients(loss_to_minimize, tvars, aggregation_method=tf.AggregationMethod.EXPERIMENTAL_TREE)
 
@@ -422,7 +434,7 @@ class SummarizationModel(object):
       self._add_seq2seq()
     self.global_step = tf.Variable(0, name='global_step', trainable=False)
     # print ("build_graph self._hps.mode: ", self._hps.mode) #train flag
-    if self._hps.mode.value == 'train':
+    if self._hps.mode.value == 'train' or self._hps.mode.value == 'ckpt':
       self._add_train_op()
     self._summaries = tf.summary.merge_all()
     t1 = time.time()

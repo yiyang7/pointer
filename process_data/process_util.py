@@ -74,7 +74,7 @@ def create_reference_file(input_dict, ref_dir):
 # input_type: train/val/tests
 # input_str: name of a story
 def create_list(subreddit_type, input_type, input_str):
-    filename = os.path.join("/home/ubuntu/cs224u/processed_"+ subreddit_type+"/", subreddit_type + input_type + "list.txt")
+    filename = os.path.join("/home/cs224u/processed_"+ subreddit_type+"/", subreddit_type + input_type + "list.txt")
     print(filename)
     f = open(filename,"w")
     f.writelines(input_str)

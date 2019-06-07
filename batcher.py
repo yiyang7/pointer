@@ -38,20 +38,20 @@ SUBRED_TABLE = {"anxiety": 0,
 class Example(object):
   """Class representing a train/val/test example for text summarization."""
 
-  def __init__(self, article, abstract_sentences, word_to_index, hps):
+  def __init__(self, article, abstract_sentences, vocab, hps):
     """Initializes the Example, performing tokenization and truncation to produce the encoder, decoder and target sequences, which are stored in self.
 
     Args:
       article: source text; a string. each token is separated by a single space.
       abstract_sentences: list of strings, one per abstract sentence. In each sentence, each token is separated by a single space.
-      word_to_index
+      vocab: Vocabulary object
       hps: hyperparameters
     """
     self.hps = hps
 
     # Get ids of special tokens
-    start_decoding = word_to_index[data.START_DECODING.lower()]
-    stop_decoding = word_to_index[data.STOP_DECODING.lower()]
+    start_decoding = vocab.word2id(data.START_DECODING)
+    stop_decoding = vocab.word2id(data.STOP_DECODING)
 
     # Process the article
     article_words = article.split()
@@ -60,7 +60,7 @@ class Example(object):
     if len(article_words) > hps.max_enc_steps.value:
       article_words = article_words[:hps.max_enc_steps.value]
     self.enc_len = len(article_words) # store the length after truncation but before padding
-    self.enc_input = [word_to_index[w.lower()] for w in article_words] # list of word ids; OOVs are represented by the id for UNK token
+    self.enc_input = [vocab.word2id(w) for w in article_words] # list of word ids; OOVs are represented by the id for UNK token
     # print ("Example __init__ self.enc_len: ", self.enc_len) # int
     # print ("Example __init__ self.enc_input: ", len(self.enc_input)) # list of int
 
@@ -75,7 +75,7 @@ class Example(object):
 
     abstract = ' '.join(abstract_sentences) # string
     abstract_words = abstract.split() # list of strings
-    abs_ids = [word_to_index[w.lower()] for w in abstract_words] # list of word ids; OOVs are represented by the id for UNK token
+    abs_ids = [vocab.word2id(w) for w in abstract_words] # list of word ids; OOVs are represented by the id for UNK token
 
     # Get the decoder input sequence and target sequence
     self.dec_input, self.target = self.get_dec_inp_targ_seqs(abs_ids, hps.max_dec_steps.value, start_decoding, stop_decoding)
@@ -85,10 +85,10 @@ class Example(object):
     # print("__init__ hps.pointer_gen: ", hps.pointer_gen) # train flag
     if hps.pointer_gen.value:
       # Store a version of the enc_input where in-article OOVs are represented by their temporary OOV id; also store the in-article OOVs words themselves
-      self.enc_input_extend_vocab, self.article_oovs = data.article2ids(article_words, word_to_index)
+      self.enc_input_extend_vocab, self.article_oovs = data.article2ids(article_words, vocab)
 
       # Get a verison of the reference summary where in-article OOVs are represented by their temporary article OOV id
-      abs_ids_extend_vocab = data.abstract2ids(abstract_words, word_to_index, self.article_oovs)
+      abs_ids_extend_vocab = data.abstract2ids(abstract_words, vocab, self.article_oovs)
 
       # Overwrite decoder target sequence so it uses the temp article OOV ids
       # print ("__init__ hps.max_dec_steps: ", hps.max_dec_steps) # train flag
@@ -147,7 +147,7 @@ class Example(object):
 class Batch(object):
   """Class representing a minibatch of train/val/test examples for text summarization."""
 
-  def __init__(self, example_list, hps, word_to_index, index_to_embedding):
+  def __init__(self, example_list, hps, vocab):
     """Turns the example_list into a Batch object.
 
     Args:
@@ -155,8 +155,7 @@ class Batch(object):
        hps: hyperparameters
        vocab: Vocabulary object
     """
-    self.pad_id = word_to_index[data.PAD_TOKEN.lower()] # id of the PAD token used to pad sequences
-    self.index_to_embedding = index_to_embedding
+    self.pad_id = vocab.word2id(data.PAD_TOKEN) # id of the PAD token used to pad sequences
     self.init_encoder_seq(example_list, hps) # initialize the input to the encoder
     self.init_decoder_seq(example_list, hps) # initialize the input and targets for the decoder
     self.store_orig_strings(example_list) # store the original strings
@@ -255,20 +254,19 @@ class Batcher(object):
 
   BATCH_QUEUE_MAX = 100 # max number of batches the batch_queue can hold
 
-  def __init__(self, data_path, word_to_index, index_to_embedding, hps, single_pass):
+  def __init__(self, data_path, vocab, hps, single_pass):
     """Initialize the batcher. Start threads that process the data into batches.
 
     Args:
       data_path: tf.Example filepattern.
-      word_to_index
+      vocab: Vocabulary object
       hps: hyperparameters
       single_pass: If True, run through the dataset exactly once (useful for when you want to run evaluation on the dev or test set). Otherwise generate random batches indefinitely (useful for training).
     """
 #     print ("data_path: ", data_path)
 #     print ("single_pass: ", single_pass)
     self._data_path = data_path
-    self._word_to_index = word_to_index
-    self._index_to_embedding = index_to_embedding
+    self._vocab = vocab
     self._hps = hps
     self._single_pass = single_pass
 
@@ -284,9 +282,9 @@ class Batcher(object):
       self._bucketing_cache_size = 1 # only load one batch's worth of examples before bucketing; this essentially means no bucketing
       self._finished_reading = False # this will tell us when we're finished reading the dataset
     else:
-      self._num_example_q_threads = 1 #16 # num threads to fill example queue
-      self._num_batch_q_threads = 1 #4  # num threads to fill batch queue
-      self._bucketing_cache_size = 1 #100 # how many batches-worth of examples to load into cache before bucketing
+      self._num_example_q_threads = 16 # num threads to fill example queue
+      self._num_batch_q_threads = 4  # num threads to fill batch queue
+      self._bucketing_cache_size = 100 # how many batches-worth of examples to load into cache before bucketing
 
     # Start the threads that load the queues
     self._example_q_threads = []
@@ -356,10 +354,8 @@ class Batcher(object):
 #       print ("batcher abstract: ", abstract)
       abstract_sentences = [sent.strip() for sent in data.abstract2sents(abstract)] # Use the <s> and </s> tags in abstract to get a list of sentences.
       # print ("fill_example_queue abstract_sentences: ", abstract_sentences)
-      example = Example(article, abstract_sentences, self._word_to_index, self._hps) # Process into an Example.
+      example = Example(article, abstract_sentences, self._vocab, self._hps) # Process into an Example.
       self._example_queue.put(example) # place the Example in the example queue.
-
-#       assert 1 == 2
 
 
   def fill_batch_queue(self):
@@ -384,12 +380,12 @@ class Batcher(object):
         if not self._single_pass:
           shuffle(batches)
         for b in batches:  # each b is a list of Example objects
-          self._batch_queue.put(Batch(b, self._hps, self._word_to_index, self._index_to_embedding))
+          self._batch_queue.put(Batch(b, self._hps, self._vocab))
 
       else: # beam search decode mode
         ex = self._example_queue.get()
         b = [ex for _ in range(self._hps.batch_size.value)]
-        self._batch_queue.put(Batch(b, self._hps, self._word_to_index, self._index_to_embedding))
+        self._batch_queue.put(Batch(b, self._hps, self._vocab))
 
 
   def watch_threads(self):

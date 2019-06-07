@@ -22,7 +22,7 @@ import os
 import tensorflow as tf
 import numpy as np
 from collections import namedtuple
-# from data import Vocab
+from data import Vocab
 from batcher import Batcher
 from model import SummarizationModel
 from decode import BeamSearchDecoder
@@ -30,11 +30,13 @@ import util
 from tensorflow.python import debug as tf_debug
 import json
 
+from tensorflow.python import pywrap_tensorflow
+
 FLAGS = tf.app.flags.FLAGS
 
 # Where to find data
 tf.app.flags.DEFINE_string('data_path', '', 'Path expression to tf.Example datafiles. Can include wildcards to access multiple datafiles.')
-# tf.app.flags.DEFINE_string('vocab_path', '', 'Path expression to text vocabulary file.')
+tf.app.flags.DEFINE_string('vocab_path', '', 'Path expression to text vocabulary file.')
 tf.app.flags.DEFINE_string('word_emb_path', '', 'Path expression to word embedding file.')
 
 # Important settings
@@ -46,16 +48,16 @@ tf.app.flags.DEFINE_string('log_root', '', 'Root directory for all logging.')
 tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be saved in a directory with this name, under log_root.')
 
 # Hyperparameters
-tf.app.flags.DEFINE_integer('hidden_dim', 64, 'dimension of RNN hidden states') # 64
-tf.app.flags.DEFINE_integer('emb_dim', 32, 'dimension of word embeddings') # 32
+tf.app.flags.DEFINE_integer('hidden_dim', 256, 'dimension of RNN hidden states') # 64
+tf.app.flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings') # 32
 tf.app.flags.DEFINE_integer('batch_size', 16, 'minibatch size')
-tf.app.flags.DEFINE_integer('max_enc_steps', 300, 'max timesteps of encoder (max source text tokens)') # 300
-tf.app.flags.DEFINE_integer('max_dec_steps', 50, 'max timesteps of decoder (max summary tokens)') # 50
+tf.app.flags.DEFINE_integer('max_enc_steps', 400, 'max timesteps of encoder (max source text tokens)') # 300
+tf.app.flags.DEFINE_integer('max_dec_steps', 100, 'max timesteps of decoder (max summary tokens)') # 50
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
-tf.app.flags.DEFINE_integer('min_dec_steps', 10, 'Minimum sequence length of generated summary. Applies only for beam search decoding mode') # 10
-# tf.app.flags.DEFINE_integer('vocab_size', 1193516, 'Size of vocabulary. These will be read from the vocabulary file in order. If the vocabulary file contains fewer words than this number, or if this number is set to 0, will take all words in the vocabulary file.')
+tf.app.flags.DEFINE_integer('min_dec_steps', 35, 'Minimum sequence length of generated summary. Applies only for beam search decoding mode') # 10
+tf.app.flags.DEFINE_integer('vocab_size', 50000, 'Size of vocabulary. These will be read from the vocabulary file in order. If the vocabulary file contains fewer words than this number, or if this number is set to 0, will take all words in the vocabulary file.')
 tf.app.flags.DEFINE_float('lr', 0.15, 'learning rate')
-tf.app.flags.DEFINE_float('adagrad_init_acc', 0.01, 'initial accumulator value for Adagrad')
+tf.app.flags.DEFINE_float('adagrad_init_acc', 0.1, 'initial accumulator value for Adagrad')
 tf.app.flags.DEFINE_float('rand_unif_init_mag', 0.02, 'magnitude for lstm cells random uniform inititalization')
 tf.app.flags.DEFINE_float('trunc_norm_init_std', 1e-4, 'std of trunc norm init, used for initializing everything else')
 tf.app.flags.DEFINE_float('max_grad_norm', 2.0, 'for gradient clipping')
@@ -293,24 +295,15 @@ def run_eval(model, batcher, vocab):
     if count % 100 == 0:
       summary_writer.flush()
     
-    count += 1
+    count += 1 # ?
 
-def tensor_from_json(path, dtype=tf.float32):
-    """Load a PyTorch Tensor from a JSON file.
-    Args:
-        path (str): Path to the JSON file to load.
-        dtype (torch.dtype): Data type of loaded array.
-    Returns:
-        tensor (torch.Tensor): Tensor loaded from JSON file.
-    """
-    with open(path, 'r') as fh:
-        array = np.array(json.load(fh))
 
-    tensor = tf.convert_to_tensor(array, dtype=dtype)
-    return tensor
+def process_ckpt():
+  pass
 
 
 def main(unused_argv):
+  print ("unused_argv: ", unused_argv)
   if len(unused_argv) != 1: # prints a message if you've entered flags incorrectly
     raise Exception("Problem with flags: %s" % unused_argv)
 
@@ -324,12 +317,9 @@ def main(unused_argv):
       os.makedirs(FLAGS.log_root)
     else:
       raise Exception("Logdir %s doesn't exist. Run in train mode to create it." % (FLAGS.log_root))
-
-  # vocab = Vocab(FLAGS.vocab_path, FLAGS.vocab_size) # create a vocabulary
-
-  # loading word embedding
-  word_to_index, index_to_embedding = util.load_embedding_from_disks(FLAGS.word_emb_path, with_indexes=True)
-
+  print ("FLAGS.vocab_size: ", FLAGS.vocab_size)
+  vocab = Vocab(FLAGS.vocab_path, FLAGS.vocab_size) # create a vocabulary
+  print ("vocab size: ", vocab.size())
   # If in decode mode, set batch_size = beam_size
   # Reason: in decode mode, we decode one example at a time.
   # On each step, we have beam_size-many hypotheses in the beam, so we need to make a batch of these hypotheses.
@@ -349,23 +339,55 @@ def main(unused_argv):
   hps = namedtuple("HParams", hps_dict.keys())(**hps_dict)
 
   # Create a batcher object that will create minibatches of data
-  batcher = Batcher(FLAGS.data_path, word_to_index, index_to_embedding, hps, single_pass=FLAGS.single_pass)
+  batcher = Batcher(FLAGS.data_path, vocab, hps, single_pass=FLAGS.single_pass)
 
-  # tf.set_random_seed(111) # a seed value for randomness
+  tf.set_random_seed(111) # a seed value for randomness
+
+#   return
 
   if hps.mode.value == 'train':
     print ("creating model...")
-    model = SummarizationModel(hps, word_to_index, index_to_embedding)
+    model = SummarizationModel(hps, vocab)
+
+    # -------------------------------------
+#     model.build_graph()
+#     print ("get value")
+#     pretrained_ckpt = '/home/cs224u/pointer/log/pretrained_model_tf1.2.1/train/model-238410'
+#     reader = pywrap_tensorflow.NewCheckpointReader(pretrained_ckpt)
+#     var_to_shape_map = reader.get_variable_to_shape_map()
+#     value = {}
+#     for key in var_to_shape_map:
+#         value[key] = reader.get_tensor(key)
+#     print ("assign op")
+#     for v in tf.trainable_variables():
+#       key = v.name.split(":")[0]
+#       if key == "seq2seq/embedding/embedding":
+#         assign_emb = v.assign(tf.convert_to_tensor(value[key]))
+#     # Add an op to initialize the variables.
+#     init_op = tf.global_variables_initializer()
+#     # Add ops to save and restore all the variables.
+#     saver = tf.train.Saver()
+#     with tf.Session(config=util.get_config()) as sess:
+#       sess.run(init_op)
+#       # Do some work with the model.
+#       assign_emb.op.run()
+#       # Save the variables to disk.
+#       ckpt_to_save = '/home/cs224u/pointer/log/test_exp/train/model.ckpt-1'
+#       save_path = saver.save(sess, ckpt_to_save)
+#       print("Model saved in path: %s" % save_path)
+
+    # -------------------------------------
+
     setup_training(model, batcher, hps)
   elif hps.mode.value == 'eval':
-    model = SummarizationModel(hps, word_to_index)
-    run_eval(model, batcher, word_to_index)
+    model = SummarizationModel(hps, vocab)
+    run_eval(model, batcher, vocab)
   elif hps.mode.value == 'decode':
     decode_model_hps = hps  # This will be the hyperparameters for the decoder model
     decode_model_hps = hps._replace(max_dec_steps=1) # The model is configured with max_dec_steps=1 because we only ever run one step of the decoder at a time (to do beam search). Note that the batcher is initialized with max_dec_steps equal to e.g. 100 because the batches need to contain the full summaries
-    model = SummarizationModel(decode_model_hps, word_to_index)
-    decoder = BeamSearchDecoder(model, batcher, word_to_index)
-    decoder.decode() # decode indefinitely (unless single_pass=True, in which case deocde the dataset exactly once)
+    model = SummarizationModel(decode_model_hps, vocab)
+    decoder = BeamSearchDecoder(model, batcher, vocab)
+    decoder.decode() # decode indefinitely (unless single_pass=True, in which case deocde the dataset exactly once)    
   else:
     raise ValueError("The 'mode' flag must be one of train/eval/decode")
 
