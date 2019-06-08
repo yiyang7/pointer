@@ -160,7 +160,8 @@ def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, en
         raise ValueError("Could not infer input size from input: %s" % inp.name)
 
       # with variable_scope.variable_scope("some_scope_"+sub_red,reuse=tf.AUTO_REUSE):
-      x = linear([inp] + [context_vector], input_size, True)
+      with variable_scope.variable_scope("some_scope",reuse=tf.AUTO_REUSE):
+        x = linear([inp] + [context_vector], input_size, True)
 
       # Run the decoder RNN cell. cell_output = decoder state
       cell_output, state = cell(x, state)
@@ -183,7 +184,7 @@ def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, en
       # Concatenate the cell_output (= decoder state) and the context vector, and pass them through a linear layer
       # This is V[s_t, h*_t] + b in the paper
       # with variable_scope.variable_scope("AttnOutputProjection_"+sub_red,reuse=tf.AUTO_REUSE):
-      with variable_scope.variable_scope("AttnOutputProjection"):
+      with variable_scope.variable_scope("AttnOutputProjection",reuse=tf.AUTO_REUSE):
         output = linear([cell_output] + [context_vector], cell.output_size, True)
       outputs.append(output)
 
