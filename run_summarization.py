@@ -48,11 +48,11 @@ tf.app.flags.DEFINE_string('log_root', '', 'Root directory for all logging.')
 tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be saved in a directory with this name, under log_root.')
 
 # Hyperparameters
-tf.app.flags.DEFINE_integer('hidden_dim', 256, 'dimension of RNN hidden states') # 64
-tf.app.flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings') # 32
-tf.app.flags.DEFINE_integer('batch_size', 16, 'minibatch size')
-tf.app.flags.DEFINE_integer('max_enc_steps', 400, 'max timesteps of encoder (max source text tokens)') # 300
-tf.app.flags.DEFINE_integer('max_dec_steps', 100, 'max timesteps of decoder (max summary tokens)') # 50
+tf.app.flags.DEFINE_integer('hidden_dim', 32, 'dimension of RNN hidden states') # 256
+tf.app.flags.DEFINE_integer('emb_dim', 16, 'dimension of word embeddings') # 128
+tf.app.flags.DEFINE_integer('batch_size', 4, 'minibatch size')
+tf.app.flags.DEFINE_integer('max_enc_steps', 200, 'max timesteps of encoder (max source text tokens)') # 300
+tf.app.flags.DEFINE_integer('max_dec_steps', 50, 'max timesteps of decoder (max summary tokens)') # 50
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
 tf.app.flags.DEFINE_integer('min_dec_steps', 35, 'Minimum sequence length of generated summary. Applies only for beam search decoding mode') # 10
 tf.app.flags.DEFINE_integer('vocab_size', 50000, 'Size of vocabulary. These will be read from the vocabulary file in order. If the vocabulary file contains fewer words than this number, or if this number is set to 0, will take all words in the vocabulary file.')
@@ -86,6 +86,8 @@ tf.app.flags.DEFINE_integer('train_size', 0, 'size of training set')
 tf.app.flags.DEFINE_integer('subred_size', 10, 'size of subreddit')
 # use doc_vec
 tf.app.flags.DEFINE_boolean('use_doc_vec', False, "Use doc_vec")
+# use doc_vec
+tf.app.flags.DEFINE_boolean('use_multi_attn', False, "Use mutli_attn")
 
 
 # 10 1k training set size 10,000 
@@ -210,7 +212,7 @@ def run_training(model, batcher, sess_context_manager, sv, summary_writer, hps):
       batch = batcher.next_batch()
 #       print ("run_training batch: ", batch)
       
-      tf.logging.info('running training step...')
+      tf.logging.info('running training step %i ...', count)
       t0=time.time()
       results = model.run_train_step(sess, batch)
       t1=time.time()
@@ -331,7 +333,7 @@ def main(unused_argv):
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'fine_tune', 'train_size', 'subred_size', 'use_doc_vec']
+  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'fine_tune', 'train_size', 'subred_size', 'use_doc_vec', 'use_multi_attn']
   hps_dict = {}
   for key,val in FLAGS.__flags.items(): # for each flag
     if key in hparam_list: # if it's in the list
