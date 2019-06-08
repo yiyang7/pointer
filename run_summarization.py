@@ -350,31 +350,39 @@ def main(unused_argv):
     model = SummarizationModel(hps, vocab)
 
     # -------------------------------------
-#     model.build_graph()
-#     print ("get value")
-#     pretrained_ckpt = '/home/cs224u/pointer/log/pretrained_model_tf1.2.1/train/model-238410'
-#     reader = pywrap_tensorflow.NewCheckpointReader(pretrained_ckpt)
-#     var_to_shape_map = reader.get_variable_to_shape_map()
-#     value = {}
-#     for key in var_to_shape_map:
-#         value[key] = reader.get_tensor(key)
-#     print ("assign op")
-#     for v in tf.trainable_variables():
-#       key = v.name.split(":")[0]
-#       if key == "seq2seq/embedding/embedding":
-#         assign_emb = v.assign(tf.convert_to_tensor(value[key]))
-#     # Add an op to initialize the variables.
-#     init_op = tf.global_variables_initializer()
-#     # Add ops to save and restore all the variables.
-#     saver = tf.train.Saver()
-#     with tf.Session(config=util.get_config()) as sess:
-#       sess.run(init_op)
-#       # Do some work with the model.
-#       assign_emb.op.run()
-#       # Save the variables to disk.
-#       ckpt_to_save = '/home/cs224u/pointer/log/test_exp/train/model.ckpt-1'
-#       save_path = saver.save(sess, ckpt_to_save)
-#       print("Model saved in path: %s" % save_path)
+    # step = 152
+
+    # model.build_graph()
+    # print ("get value")
+    # pretrained_ckpt = '/home/cs224u/pointer/log/pretrained_model_tf1.2.1/train/model-238410'
+    # reader = pywrap_tensorflow.NewCheckpointReader(pretrained_ckpt)
+    # var_to_shape_map = reader.get_variable_to_shape_map()
+    # value = {}
+    # for key in var_to_shape_map:
+    #     value[key] = reader.get_tensor(key)
+    # print ("assign op")
+    # for v in tf.trainable_variables():
+    #   key = v.name.split(":")[0]
+    #   if key == "seq2seq/embedding/embedding":
+    #     assign_emb = v.assign(tf.convert_to_tensor(value[key]))
+
+    # # Add an op to initialize the variables.
+    # init_op = tf.global_variables_initializer()
+    # # Add ops to save and restore all the variables.
+    # saver = tf.train.Saver()
+    # with tf.Session(config=util.get_config()) as sess:
+    #   sess.run(init_op)
+    #   # Do some work with the model.
+    #   assign_emb.op.run()
+
+    #   for _ in range(step):
+    #     batch = batcher.next_batch()
+    #     results = model.run_train_step(sess, batch)
+      
+    #   # Save the variables to disk.
+    #   ckpt_to_save = '/home/cs224u/pointer/log/model.ckpt-'+str(step)
+    #   save_path = saver.save(sess, ckpt_to_save)
+    #   print("Model saved in path: %s" % save_path)
 
     # -------------------------------------
 
