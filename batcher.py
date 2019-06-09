@@ -25,8 +25,8 @@ import tensorflow as tf
 import data
 
 SUBRED_TABLE = {"atheismbot": 0,
-                "relationships": 1}
-                # "ukpolitics": 2}
+                "relationships": 1,
+                "ukpolitics": 2}
 
 class Example(object):
   """Class representing a train/val/test example for text summarization."""

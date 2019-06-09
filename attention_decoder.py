@@ -73,7 +73,11 @@ def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_state
 
     # with variable_scope.variable_scope("attn_dist_"+sub_red,reuse=tf.AUTO_REUSE):
     # Get the weight vectors v and w_c (w_c is for coverage)
-    v = variable_scope.get_variable("v", [attention_vec_size])
+    if hps.use_multi_attn.value:
+      with variable_scope.variable_scope("attn_"+sub_red,reuse=tf.AUTO_REUSE):
+        v = variable_scope.get_variable("v", [attention_vec_size])
+    else:
+      v = variable_scope.get_variable("v", [attention_vec_size])
 
     if use_coverage:
       with variable_scope.variable_scope("coverage"):
@@ -98,7 +102,10 @@ def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_state
       # with variable_scope.variable_scope("Attention_"+sub_red,reuse=tf.AUTO_REUSE):
       with variable_scope.variable_scope("Attention",reuse=tf.AUTO_REUSE):
         # Pass the decoder state through a linear layer (this is W_s s_t + b_attn in the paper)
-        decoder_features = linear(decoder_state, attention_vec_size, True) # shape (batch_size, attention_vec_size)
+        if hps.use_multi_attn.value:
+          decoder_features = linear(decoder_state, attention_vec_size, True, 0.0, sub_red)
+        else:
+          decoder_features = linear(decoder_state, attention_vec_size, True) # shape (batch_size, attention_vec_size)
         decoder_features = tf.expand_dims(tf.expand_dims(decoder_features, 1), 1) # reshape to (batch_size, 1, 1, attention_vec_size)
 
         def masked_attention(e):
@@ -169,7 +176,10 @@ def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_state
         raise ValueError("Could not infer input size from input: %s" % inp.name)
 
       # with variable_scope.variable_scope("some_scope_"+sub_red,reuse=tf.AUTO_REUSE):
-      x = linear([inp] + [context_vector], input_size, True)
+      if hps.use_multi_pgen.value:
+        x = linear([inp] + [context_vector], input_size, True, 0.0, sub_red)
+      else:
+        x = linear([inp] + [context_vector], input_size, True)
 
       # Run the decoder RNN cell. cell_output = decoder state
       cell_output, state = cell(x, state)
@@ -184,12 +194,11 @@ def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_state
 
       # Calculate p_gen
       if pointer_gen:
-        if hps.use_multi_attn.value:
-          scope_name = 'calculate_pgen_'+sub_red
-        else:
-          scope_name = 'calculate_pgen'
-        with tf.variable_scope(scope_name,reuse=tf.AUTO_REUSE):
-          p_gen = linear([context_vector, state.c, state.h, x], 1, True) # Tensor shape (batch_size, 1)
+        with tf.variable_scope("calculate_pgen",reuse=tf.AUTO_REUSE):
+          if hps.use_multi_pgen.value:
+            p_gen = linear([context_vector, state.c, state.h, x], 1, True, 0.0, sub_red)
+          else:
+            p_gen = linear([context_vector, state.c, state.h, x], 1, True) # Tensor shape (batch_size, 1)
           p_gen = tf.sigmoid(p_gen)
           p_gens.append(p_gen)
 
@@ -197,7 +206,10 @@ def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_state
       # This is V[s_t, h*_t] + b in the paper
       # with variable_scope.variable_scope("AttnOutputProjection_"+sub_red,reuse=tf.AUTO_REUSE):
       with variable_scope.variable_scope("AttnOutputProjection",reuse=tf.AUTO_REUSE):
-        output = linear([cell_output] + [context_vector], cell.output_size, True)
+        if hps.use_multi_pvocab.value:
+          output = linear([cell_output] + [context_vector], cell.output_size, True, 0.0, sub_red)
+        else:
+          output = linear([cell_output] + [context_vector], cell.output_size, True)
       outputs.append(output)
 
     # If using coverage, reshape it
@@ -206,7 +218,7 @@ def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_state
 
     # print ("attention_decoder attn_dists: ", attn_dists[0].shape) # (1,?)
 
-    if hps.use_multi_attn.value:
+    if hps.use_multi_attn.value or hps.use_multi_pgen.value or hps.use_multi_pvocab.value:
       cov = 1
       if coverage is not None:
         cov = coverage
@@ -250,7 +262,7 @@ def linear(args, output_size, bias, bias_start=0.0, scope=None):
       total_arg_size += shape[1]
 
   # Now the computation.
-  with tf.variable_scope(scope or "Linear"):
+  with tf.variable_scope("Linear"):
     matrix = tf.get_variable("Matrix", [total_arg_size, output_size])
     if len(args) == 1:
       res = tf.matmul(args[0], matrix)
@@ -258,6 +270,12 @@ def linear(args, output_size, bias, bias_start=0.0, scope=None):
       res = tf.matmul(tf.concat(axis=1, values=args), matrix)
     if not bias:
       return res
+  
+  t_scope = "Linear"
+  if scope:
+    t_scope = "Linear_"+scope
+
+  with tf.variable_scope(t_scope):
     bias_term = tf.get_variable(
         "Bias", [output_size], initializer=tf.constant_initializer(bias_start))
   return res + bias_term

@@ -47,7 +47,7 @@ class SummarizationModel(object):
     if FLAGS.pointer_gen:
       self._enc_batch_extend_vocab = tf.placeholder(tf.int32, [hps.batch_size.value, None], name='enc_batch_extend_vocab')
       self._max_art_oovs = tf.placeholder(tf.int32, [], name='max_art_oovs')
-    if hps.use_doc_vec.value or hps.use_multi_attn.value:
+    if hps.use_doc_vec.value or hps.use_multi_attn.value or hps.use_multi_pgen.value or hps.use_multi_pvocab.value:
       self._enc_tag_batch = tf.placeholder(tf.int32, [hps.batch_size.value], name='enc_tag_batch')
 
     # self._tf_word_ids = tf.placeholder(tf.int32, shape=[hps.batch_size.value])
@@ -89,7 +89,7 @@ class SummarizationModel(object):
       feed_dict[self._dec_batch] = batch.dec_batch
       feed_dict[self._target_batch] = batch.target_batch
       feed_dict[self._dec_padding_mask] = batch.dec_padding_mask
-    if self._hps.use_doc_vec.value or self._hps.use_multi_attn.value:
+    if self._hps.use_doc_vec.value or self._hps.use_multi_attn.value or self._hps.use_multi_pgen.value or self._hps.use_multi_pvocab.value:
       # print ("_make_feed_dict batch.enc_tag_batch: ", type(batch.enc_tag_batch))
       # print ("_make_feed_dict batch.enc_tag_batch: ", batch.enc_tag_batch.shape)
       feed_dict[self._enc_tag_batch] = batch.enc_tag_batch
@@ -194,7 +194,7 @@ class SummarizationModel(object):
     # print ("_add_decoder : dec_in_state", input_dec_in_state[0].shape)
     # print ("_add_decoder : dec_in_state", input_dec_in_state[1].shape)
     # print ("_add_decoder self._enc_tag_batch: ", self._enc_tag_batch[0])
-    if not self._hps.use_multi_attn.value:
+    if not self._hps.use_multi_attn.value and not self._hps.use_multi_pgen.value and not self._hps.use_multi_pvocab.value:
       outputs_all, out_state_all, attn_dists_all, p_gens_all, coverage_all = attention_decoder(hps, "0", inputs, self._dec_in_state, self._enc_states, self._enc_padding_mask, cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)
     else:
       outputs_all = None
@@ -228,20 +228,21 @@ class SummarizationModel(object):
         # print ("_add_decoder input_enc_states: ", input_enc_states.get_shape()[0].value)
         # print ("_add_decoder input_enc_states: ", input_enc_states.shape)
         # print ("_add_decoder prev_coverage: ", prev_coverage.shape)
-        prev_cov = tf.expand_dims(prev_coverage[i],0)
+        if prev_coverage is not None:
+          prev_cov = tf.expand_dims(prev_coverage[i],0)
+        else: 
+          prev_cov = None
         # print ("_add_decoder prev_cov: ", prev_cov.shape)
-        outputs, out_state, attn_dists, p_gens, coverage = tf.case(pred_fn_pairs=[
-                                                            (tf.equal(tf.constant(0,dtype=tf.int32), c), lambda : attention_decoder(hps, "0", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov)),
-                                                            (tf.equal(tf.constant(1,dtype=tf.int32), c), lambda : attention_decoder(hps, "1", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov))])
-                                                            # (tf.equal(tf.constant(2,dtype=tf.int32), c), lambda : attention_decoder(hps, "2", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov)),
-                                                            # (tf.equal(tf.constant(3,dtype=tf.int32), c), lambda : attention_decoder(hps, "3", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
-                                                            # (tf.equal(tf.constant(4,dtype=tf.int32), c), lambda : attention_decoder("4", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
-                                                            # (tf.equal(tf.constant(5,dtype=tf.int32), c), lambda : attention_decoder("5", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
-                                                            # (tf.equal(tf.constant(6,dtype=tf.int32), c), lambda : attention_decoder("6", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
-                                                            # (tf.equal(tf.constant(7,dtype=tf.int32), c), lambda : attention_decoder("7", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
-                                                            # (tf.equal(tf.constant(8,dtype=tf.int32), c), lambda : attention_decoder("8", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
-                                                            # (tf.equal(tf.constant(9,dtype=tf.int32), c), lambda : attention_decoder("9", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage))])
-
+        if self._hps.subred_size.value == 2:
+          outputs, out_state, attn_dists, p_gens, coverage = tf.case(pred_fn_pairs=[
+                                                              (tf.equal(tf.constant(0,dtype=tf.int32), c), lambda : attention_decoder(hps, "0", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov)),
+                                                              (tf.equal(tf.constant(1,dtype=tf.int32), c), lambda : attention_decoder(hps, "1", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov))])
+        elif self._hps.subred_size.value == 3:
+          outputs, out_state, attn_dists, p_gens, coverage = tf.case(pred_fn_pairs=[
+                                                              (tf.equal(tf.constant(0,dtype=tf.int32), c), lambda : attention_decoder(hps, "0", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov)),
+                                                              (tf.equal(tf.constant(1,dtype=tf.int32), c), lambda : attention_decoder(hps, "1", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov)),
+                                                              (tf.equal(tf.constant(2,dtype=tf.int32), c), lambda : attention_decoder(hps, "2", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov))])
+                                                              
 
         def func(a,b):
           return tf.concat([a,b], 0)
@@ -256,7 +257,8 @@ class SummarizationModel(object):
         out_state_all.append(out_state) # print ("out_state: ", out_state.shape)
         attn_dists_all = list(map(func, attn_dists, attn_dists_all)) if attn_dists_all is not None else attn_dists
         p_gens_all = list(map(func, p_gens, p_gens_all)) if p_gens_all is not None else p_gens
-        coverage_all = tf.concat([coverage,coverage_all], 0) if coverage_all is not None else coverage
+        if self._hps.coverage.value:
+          coverage_all = tf.concat([coverage,coverage_all], 0) if coverage_all is not None else coverage
         # print ("_add_decoder outputs_all: ", outputs_all[0].shape) # 100 (4, 256)
         # print ("_add_decoder out_state_all: ", out_state_all[0][0].shape) # (256,)
         # print ("_add_decoder attn_dists_all: ", attn_dists_all[0].shape) # 100 (4, ?)
@@ -648,7 +650,7 @@ class SummarizationModel(object):
         self._dec_in_state: new_dec_in_state,
         self._dec_batch: np.transpose(np.array([latest_tokens])),
     }
-    if self._hps.use_doc_vec.value or self._hps.use_multi_attn.value:
+    if self._hps.use_doc_vec.value or self._hps.use_multi_attn.value or self._hps.use_multi_pgen.value or self._hps.use_multi_pvocab.value:
       feed[self._enc_tag_batch] = batch.enc_tag_batch
 
 
