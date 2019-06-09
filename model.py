@@ -76,6 +76,9 @@ class SummarizationModel(object):
       just_enc: Boolean. If True, only feed the parts needed for the encoder.
     """
     feed_dict = {}
+    # print ("_make_feed_dict batch.enc_lens: ", type(batch.enc_lens))
+    # print ("_make_feed_dict batch.enc_lens: ", batch.enc_lens.shape)
+    # print ("_make_feed_dict batch.enc_lens: ", type(batch.enc_lens))
     feed_dict[self._enc_batch] = batch.enc_batch
     feed_dict[self._enc_lens] = batch.enc_lens
     feed_dict[self._enc_padding_mask] = batch.enc_padding_mask
@@ -87,7 +90,10 @@ class SummarizationModel(object):
       feed_dict[self._target_batch] = batch.target_batch
       feed_dict[self._dec_padding_mask] = batch.dec_padding_mask
     if self._hps.use_doc_vec.value or self._hps.use_multi_attn.value:
+      # print ("_make_feed_dict batch.enc_tag_batch: ", type(batch.enc_tag_batch))
+      # print ("_make_feed_dict batch.enc_tag_batch: ", batch.enc_tag_batch.shape)
       feed_dict[self._enc_tag_batch] = batch.enc_tag_batch
+
     return feed_dict
 
   def _add_encoder(self, encoder_inputs, seq_len):
@@ -171,6 +177,7 @@ class SummarizationModel(object):
     # print ("add decoder hps.mode: ", hps.mode) #train flag
     # print ("add decoder hps.coverage: ", hps.coverage) #train flag
     prev_coverage = self.prev_coverage if hps.mode.value=="decode" and hps.coverage.value else None # In decode mode, we run attention_decoder one step at a time and so need to pass in the previous step's coverage vector each time
+    
     # print ("add decoder hps.pointer_gen: ", hps.pointer_gen) #train flag
     # print ("_add_decoder self._enc_states: ", self._enc_states.shape)
 
@@ -188,7 +195,7 @@ class SummarizationModel(object):
     # print ("_add_decoder : dec_in_state", input_dec_in_state[1].shape)
     # print ("_add_decoder self._enc_tag_batch: ", self._enc_tag_batch[0])
     if not self._hps.use_multi_attn.value:
-      outputs_all, out_state_all, attn_dists_all, p_gens_all, coverage_all = attention_decoder("0", inputs, self._dec_in_state, self._enc_states, self._enc_padding_mask, cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)
+      outputs_all, out_state_all, attn_dists_all, p_gens_all, coverage_all = attention_decoder(hps, "0", inputs, self._dec_in_state, self._enc_states, self._enc_padding_mask, cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)
     else:
       outputs_all = None
       out_state_all = []
@@ -218,10 +225,15 @@ class SummarizationModel(object):
         input_enc_states =  tf.expand_dims(self._enc_states[i],0)
         
         c = self._enc_tag_batch[i]
-        outputs, out_state, attn_dists, p_gens, _ = tf.case(pred_fn_pairs=[
-                                                            (tf.equal(tf.constant(0,dtype=tf.int32), c), lambda : attention_decoder(hps, "0", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
-                                                            (tf.equal(tf.constant(1,dtype=tf.int32), c), lambda : attention_decoder(hps, "1", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage))])
-                                                            (tf.equal(tf.constant(2,dtype=tf.int32), c), lambda : attention_decoder(hps, "2", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
+        # print ("_add_decoder input_enc_states: ", input_enc_states.get_shape()[0].value)
+        # print ("_add_decoder input_enc_states: ", input_enc_states.shape)
+        # print ("_add_decoder prev_coverage: ", prev_coverage.shape)
+        prev_cov = tf.expand_dims(prev_coverage[i],0)
+        # print ("_add_decoder prev_cov: ", prev_cov.shape)
+        outputs, out_state, attn_dists, p_gens, coverage = tf.case(pred_fn_pairs=[
+                                                            (tf.equal(tf.constant(0,dtype=tf.int32), c), lambda : attention_decoder(hps, "0", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov)),
+                                                            (tf.equal(tf.constant(1,dtype=tf.int32), c), lambda : attention_decoder(hps, "1", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov))])
+                                                            # (tf.equal(tf.constant(2,dtype=tf.int32), c), lambda : attention_decoder(hps, "2", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_cov)),
                                                             # (tf.equal(tf.constant(3,dtype=tf.int32), c), lambda : attention_decoder(hps, "3", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
                                                             # (tf.equal(tf.constant(4,dtype=tf.int32), c), lambda : attention_decoder("4", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
                                                             # (tf.equal(tf.constant(5,dtype=tf.int32), c), lambda : attention_decoder("5", input_data, input_dec_in_state, input_enc_states, self._enc_padding_mask[i], cell, initial_state_attention=(hps.mode.value=="decode"), pointer_gen=hps.pointer_gen.value, use_coverage=hps.coverage.value, prev_coverage=prev_coverage)),
@@ -234,6 +246,7 @@ class SummarizationModel(object):
         def func(a,b):
           return tf.concat([a,b], 0)
 
+        # print ("_add_decoder coverage: ", coverage.shape) # (1, ?)
         # print ("_add_decoder outputs: ", outputs[0].shape) # 100 (4, 256)
         # print ("_add_decoder out_state: ", out_state[0].shape) # (256,)
         # print ("_add_decoder attn_dists: ", attn_dists[0].shape) # 100 (4, ?)
@@ -243,7 +256,7 @@ class SummarizationModel(object):
         out_state_all.append(out_state) # print ("out_state: ", out_state.shape)
         attn_dists_all = list(map(func, attn_dists, attn_dists_all)) if attn_dists_all is not None else attn_dists
         p_gens_all = list(map(func, p_gens, p_gens_all)) if p_gens_all is not None else p_gens
-
+        coverage_all = tf.concat([coverage,coverage_all], 0) if coverage_all is not None else coverage
         # print ("_add_decoder outputs_all: ", outputs_all[0].shape) # 100 (4, 256)
         # print ("_add_decoder out_state_all: ", out_state_all[0][0].shape) # (256,)
         # print ("_add_decoder attn_dists_all: ", attn_dists_all[0].shape) # 100 (4, ?)
@@ -260,16 +273,17 @@ class SummarizationModel(object):
       
 
       # reshape list
-      # print ("_add_decoder outputs: ", len(outputs_all)) # 100 (64, 256)
-      # print ("_add_decoder out_state: ", out_state_all[0].shape) # (64, 256)
-      # print ("_add_decoder attn_dists: ", len(attn_dists_all)) # 100 (64, ?)
-      # print ("_add_decoder p_gens: ", len(p_gens_all)) # 100 (64, 1)
+      # print ("_add_decoder final outputs_all: ", len(outputs_all)) # 100 (64, 256)
+      # print ("_add_decoder final out_state_all: ", out_state_all[0].shape) # (64, 256)
+      # print ("_add_decoder final attn_dists_all: ", len(attn_dists_all)) # 100 (64, ?)
+      # print ("_add_decoder final p_gens_all: ", len(p_gens_all)) # 100 (64, 1)
 
-      # print ("_add_decoder outputs: ", outputs_all[0].shape) # 100 (64, 256)
-      # print ("_add_decoder out_state: ", out_state_all[0].shape) # (64, 256)
-      # print ("_add_decoder attn_dists: ", attn_dists_all[0].shape) # 100 (64, ?)
-      # print ("_add_decoder p_gens: ", p_gens_all[0].shape) # 100 (64, 1)
-      # # print ("_add_decoder coverage_all: ", coverage_all.shape)
+      # print ("_add_decoder final outputs_all: ", outputs_all[0].shape) # 100 (64, 256)
+      # print ("_add_decoder final out_state_all: ", out_state_all[0].shape) # (64, 256)
+      # print ("_add_decoder final attn_dists_all: ", attn_dists_all[0].shape) # 100 (64, ?)
+      # print ("_add_decoder final p_gens_all: ", p_gens_all[0].shape) # 100 (64, 1)
+      # print ("_add_decoder coverage_all: ", coverage_all.shape)
+
 
     return outputs_all, out_state_all, attn_dists_all, p_gens_all, coverage_all
 
@@ -285,6 +299,10 @@ class SummarizationModel(object):
     """
     with tf.variable_scope('final_distribution'):
       # Multiply vocab dists by p_gen and attention dists by (1-p_gen)
+      # print ("_calc_final_dist self.p_gens: ", self.p_gens[0].shape) # (4, 1)
+      # print ("_calc_final_dist vocab_dists", vocab_dists[0].shape) # (4, 50000)
+      # print ("_calc_final_dist attn_dists", attn_dists[0].shape) # (4, ?)
+
       vocab_dists = [p_gen * dist for (p_gen,dist) in zip(self.p_gens, vocab_dists)]
       attn_dists = [(1-p_gen) * dist for (p_gen,dist) in zip(self.p_gens, attn_dists)]
 
@@ -630,6 +648,9 @@ class SummarizationModel(object):
         self._dec_in_state: new_dec_in_state,
         self._dec_batch: np.transpose(np.array([latest_tokens])),
     }
+    if self._hps.use_doc_vec.value or self._hps.use_multi_attn.value:
+      feed[self._enc_tag_batch] = batch.enc_tag_batch
+
 
     to_return = {
       "ids": self._topk_ids,
@@ -647,7 +668,9 @@ class SummarizationModel(object):
       feed[self.prev_coverage] = np.stack(prev_coverage, axis=0)
       to_return['coverage'] = self.coverage
 
+    # print ("decode_onestep self.coverage: ", self.coverage)
     results = sess.run(to_return, feed_dict=feed) # run the decoder step
+    # print ("decode_onestep results: ", results)
 
     # Convert results['states'] (a single LSTMStateTuple) into a list of LSTMStateTuple -- one for each hypothesis
     new_states = [tf.contrib.rnn.LSTMStateTuple(results['states'].c[i, :], results['states'].h[i, :]) for i in range(beam_size)]

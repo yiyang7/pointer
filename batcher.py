@@ -24,16 +24,9 @@ import numpy as np
 import tensorflow as tf
 import data
 
-SUBRED_TABLE = {"anxiety": 0,
-                "askhistorians": 1,
-                "atheismbot": 2,
-                "dogtraining": 3,
-                "legaladvice": 4,
-                "nfl": 5,
-                "pettyrevenge": 6,
-                "relationships": 7,
-                "shouldibuythisgame": 8,
-                "ukpolitics": 9,}
+SUBRED_TABLE = {"atheismbot": 0,
+                "relationships": 1}
+                # "ukpolitics": 2}
 
 class Example(object):
   """Class representing a train/val/test example for text summarization."""

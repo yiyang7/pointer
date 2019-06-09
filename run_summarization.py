@@ -50,7 +50,7 @@ tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be sa
 # Hyperparameters
 tf.app.flags.DEFINE_integer('hidden_dim', 64, 'dimension of RNN hidden states') # 256
 tf.app.flags.DEFINE_integer('emb_dim', 32, 'dimension of word embeddings') # 128
-tf.app.flags.DEFINE_integer('batch_size', 2, 'minibatch size')
+tf.app.flags.DEFINE_integer('batch_size', 4, 'minibatch size')
 tf.app.flags.DEFINE_integer('max_enc_steps', 300, 'max timesteps of encoder (max source text tokens)') # 300
 tf.app.flags.DEFINE_integer('max_dec_steps', 50, 'max timesteps of decoder (max summary tokens)') # 50
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
@@ -368,27 +368,99 @@ def main(unused_argv):
 
       print ("assign op")
       assign_op = []
-      if hps.use_multi_attn.value:
-        new_key = ["seq2seq/decoder/attention_decoder/calculate_pgen_0/Linear/Matrix",
-                  "seq2seq/decoder/attention_decoder/calculate_pgen_0/Linear/Bias",
-                  "seq2seq/decoder/attention_decoder/calculate_pgen_1/Linear/Matrix",
-                  "seq2seq/decoder/attention_decoder/calculate_pgen_1/Linear/Bias",
-                  "seq2seq/decoder/attention_decoder/calculate_pgen_2/Linear/Matrix",
-                  "seq2seq/decoder/attention_decoder/calculate_pgen_2/Linear/Bias"]
-        for v in tf.trainable_variables():
-          key = v.name.split(":")[0]
-          if key in new_key:
-            origin_key = "seq2seq/decoder/attention_decoder/calculate_pgen/Linear/"+new_key.split("/")[-1]
-            a_op = v.assign(tf.convert_to_tensor(value[origin_key]))
-          else:
-            a_op = v.assign(tf.convert_to_tensor(value[key]))
+      # if hps.use_multi_attn.value:
+      #   new_key = ["seq2seq/decoder/attention_decoder/calculate_pgen_0/Linear/Matrix",
+      #             "seq2seq/decoder/attention_decoder/calculate_pgen_0/Linear/Bias",
+      #             "seq2seq/decoder/attention_decoder/calculate_pgen_1/Linear/Matrix",
+      #             "seq2seq/decoder/attention_decoder/calculate_pgen_1/Linear/Bias",
+      #             "seq2seq/decoder/attention_decoder/calculate_pgen_2/Linear/Matrix",
+      #             "seq2seq/decoder/attention_decoder/calculate_pgen_2/Linear/Bias"]
+      #   for v in tf.trainable_variables():
+      #     key = v.name.split(":")[0]
+      #     if key in new_key:
+      #       origin_key = "seq2seq/decoder/attention_decoder/calculate_pgen/Linear/"+new_key.split("/")[-1]
+      #       a_op = v.assign(tf.convert_to_tensor(value[origin_key]))
+      #     else:
+      #       a_op = v.assign(tf.convert_to_tensor(value[key]))
           
-          assign_op.append(a_op)
-      else:
-        for v in tf.trainable_variables():
-          key = v.name.split(":")[0]
-          if key == "seq2seq/embedding/embedding":
-            assign_emb = v.assign(tf.convert_to_tensor(value[key]))
+      #     assign_op.append(a_op)
+      # else:
+      #   for v in tf.trainable_variables():
+      #     key = v.name.split(":")[0]
+      #     if key == "seq2seq/embedding/embedding":
+      #       assign_emb = v.assign(tf.convert_to_tensor(value[key]))
+
+      for v in tf.trainable_variables():
+        key = v.name.split(":")[0]
+        # embedding (50000, 128) -> (50000, 32)
+        
+        if key == "seq2seq/embedding/embedding":
+            print (key)
+            print (value[key].shape)
+            d1 = value[key].shape[1]
+            a_op = v.assign(tf.convert_to_tensor(value[key][:,:d1//4]))
+        # kernel (384, 1024) -> (96, 256)
+        # w_reduce_c (512, 256) -> (128, 64)
+        elif key == "seq2seq/encoder/bidirectional_rnn/fw/lstm_cell/kernel" or \
+        key == "seq2seq/encoder/bidirectional_rnn/bw/lstm_cell/kernel" or \
+        key == "seq2seq/reduce_final_st/w_reduce_c" or \
+        key == "seq2seq/reduce_final_st/w_reduce_h" or \
+        key == "seq2seq/decoder/attention_decoder/Linear/Matrix" or \
+        key == "seq2seq/decoder/attention_decoder/lstm_cell/kernel" or \
+        key == "seq2seq/decoder/attention_decoder/Attention/Linear/Matrix" or \
+        key == "seq2seq/decoder/attention_decoder/AttnOutputProjection/Linear/Matrix":
+            print (key)
+            print (value[key].shape)
+            d0, d1 = value[key].shape[0], value[key].shape[1]
+            a_op = v.assign(tf.convert_to_tensor(value[key][:d0//4, :d1//4]))
+        # bias (1024,) -> (256,)
+        elif key == "seq2seq/encoder/bidirectional_rnn/fw/lstm_cell/bias" or \
+        key == "seq2seq/encoder/bidirectional_rnn/bw/lstm_cell/bias" or \
+        key == "seq2seq/reduce_final_st/bias_reduce_c" or \
+        key == "seq2seq/reduce_final_st/bias_reduce_h" or \
+        key == "seq2seq/decoder/attention_decoder/v" or \
+        key == "seq2seq/decoder/attention_decoder/Linear/Bias" or \
+        key == "seq2seq/decoder/attention_decoder/lstm_cell/bias" or \
+        key == "seq2seq/decoder/attention_decoder/Attention/Linear/Bias" or \
+        key == "seq2seq/decoder/attention_decoder/AttnOutputProjection/Linear/Bias":
+            print (key)
+            print (value[key].shape)
+            d0 = value[key].shape[0]
+            a_op = v.assign(tf.convert_to_tensor(value[key][:d0//4]))
+        # W_h (1, 1, 512, 512) -> (1, 1, 128, 128)
+        elif key == "seq2seq/decoder/attention_decoder/W_h":
+            print (key)
+            print (value[key].shape)
+            d2, d3 = value[key].shape[2], value[key].shape[3]
+            a_op = v.assign(tf.convert_to_tensor(value[key][:,:,:d2//4,:d3//4]))
+        # Matrix (1152, 1) -> (288, 1)
+        elif key == "seq2seq/output_projection/w":
+            print (key)
+            print (value[key].shape)
+            d0 = value[key].shape[0]
+            a_op = v.assign(tf.convert_to_tensor(value[key][:d0//4,:]))
+        # Bias (1,) -> (1,)
+        elif key == "seq2seq/output_projection/v":
+            print (key)
+            print (value[key].shape)
+            a_op = v.assign(tf.convert_to_tensor(value[key]))
+        
+        # multi_attn
+        if key == "seq2seq/decoder/attention_decoder/calculate_pgen_0/Linear/Matrix" or \
+        key == "seq2seq/decoder/attention_decoder/calculate_pgen_1/Linear/Matrix":
+            k = "seq2seq/decoder/attention_decoder/calculate_pgen/Linear/Matrix"
+            print (key)
+            print (value[k].shape)
+            d0 = value[k].shape[0]
+            a_op = v.assign(tf.convert_to_tensor(value[k][:d0//4,:]))
+        if key == "seq2seq/decoder/attention_decoder/calculate_pgen_0/Linear/Bias" or \
+        key == "seq2seq/decoder/attention_decoder/calculate_pgen_1/Linear/Bias":
+            k = "seq2seq/decoder/attention_decoder/calculate_pgen/Linear/Bias"
+            print (key)
+            print (value[k].shape)
+            a_op = v.assign(tf.convert_to_tensor(value[k]))
+
+        assign_op.append(a_op)
 
       # Add an op to initialize the variables.
       init_op = tf.global_variables_initializer()
@@ -405,7 +477,7 @@ def main(unused_argv):
           results = model.run_train_step(sess, batch)
         
         # Save the variables to disk.
-        ckpt_to_save = '/home/cs224u/pointer/log/model.ckpt-'+str(step)
+        ckpt_to_save = '/home/cs224u/pointer/log/ckpt/multi_attn_2_proj/model.ckpt-'+str(step)
         save_path = saver.save(sess, ckpt_to_save)
         print("Model saved in path: %s" % save_path)
 

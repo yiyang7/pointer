@@ -110,11 +110,17 @@ def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_state
 
         if use_coverage and coverage is not None: # non-first step of coverage
           # Multiply coverage vector by w_c to get coverage_features.
+          # print ("attention w_c: ", w_c.shape)
+          # print ("attention coverage: ", coverage)
           coverage_features = nn_ops.conv2d(coverage, w_c, [1, 1, 1, 1], "SAME") # c has shape (batch_size, attn_length, 1, attention_vec_size)
 
           # Calculate v^T tanh(W_h h_i + W_s s_t + w_c c_i^t + b_attn)
+          # print ("attention v: ", v.shape)
+          # print ("attention encoder_features: ", encoder_features.shape)
+          # print ("attention decoder_features: ", decoder_features.shape)
+          # print ("attention coverage_features: ", coverage_features.shape)
           e = math_ops.reduce_sum(v * math_ops.tanh(encoder_features + decoder_features + coverage_features), [2, 3])  # shape (batch_size,attn_length)
-
+          # print ("attention e: ", e.shape)
           # Calculate attention distribution
           attn_dist = masked_attention(e)
 
@@ -138,7 +144,7 @@ def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_state
         context_vector = math_ops.reduce_sum(array_ops.reshape(attn_dist, [batch_size, -1, 1, 1]) * encoder_states, [1, 2]) # shape (batch_size, attn_size).
         context_vector = array_ops.reshape(context_vector, [-1, attn_size])
       
-      # print ("attention attn_dist: ", attn_dist.shape) # (16, ?)
+      # print ("attention attn_dist: ", attn_dist.shape) # (4, ?)
 
       return context_vector, attn_dist, coverage
 
@@ -198,9 +204,13 @@ def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_state
     if coverage is not None:
       coverage = array_ops.reshape(coverage, [batch_size, -1])
 
-    # print ("attention_decoder attn_dists[0]: ", attn_dists[0].shape) # (16, ?)
+    # print ("attention_decoder attn_dists: ", attn_dists[0].shape) # (1,?)
+
     if hps.use_multi_attn.value:
-      return outputs, state, attn_dists, p_gens, 1
+      cov = 1
+      if coverage is not None:
+        cov = coverage
+      return outputs, state, attn_dists, p_gens, cov
     else:
       return outputs, state, attn_dists, p_gens, coverage
 
