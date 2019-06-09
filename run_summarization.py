@@ -48,11 +48,11 @@ tf.app.flags.DEFINE_string('log_root', '', 'Root directory for all logging.')
 tf.app.flags.DEFINE_string('exp_name', '', 'Name for experiment. Logs will be saved in a directory with this name, under log_root.')
 
 # Hyperparameters
-tf.app.flags.DEFINE_integer('hidden_dim', 256, 'dimension of RNN hidden states') # 256
-tf.app.flags.DEFINE_integer('emb_dim', 128, 'dimension of word embeddings') # 128
-tf.app.flags.DEFINE_integer('batch_size', 16, 'minibatch size')
-tf.app.flags.DEFINE_integer('max_enc_steps', 400, 'max timesteps of encoder (max source text tokens)') # 300
-tf.app.flags.DEFINE_integer('max_dec_steps', 100, 'max timesteps of decoder (max summary tokens)') # 50
+tf.app.flags.DEFINE_integer('hidden_dim', 64, 'dimension of RNN hidden states') # 256
+tf.app.flags.DEFINE_integer('emb_dim', 32, 'dimension of word embeddings') # 128
+tf.app.flags.DEFINE_integer('batch_size', 2, 'minibatch size')
+tf.app.flags.DEFINE_integer('max_enc_steps', 300, 'max timesteps of encoder (max source text tokens)') # 300
+tf.app.flags.DEFINE_integer('max_dec_steps', 50, 'max timesteps of decoder (max summary tokens)') # 50
 tf.app.flags.DEFINE_integer('beam_size', 4, 'beam size for beam search decoding.')
 tf.app.flags.DEFINE_integer('min_dec_steps', 35, 'Minimum sequence length of generated summary. Applies only for beam search decoding mode') # 10
 tf.app.flags.DEFINE_integer('vocab_size', 50000, 'Size of vocabulary. These will be read from the vocabulary file in order. If the vocabulary file contains fewer words than this number, or if this number is set to 0, will take all words in the vocabulary file.')
@@ -86,8 +86,10 @@ tf.app.flags.DEFINE_integer('train_size', 0, 'size of training set')
 tf.app.flags.DEFINE_integer('subred_size', 10, 'size of subreddit')
 # use doc_vec
 tf.app.flags.DEFINE_boolean('use_doc_vec', False, "Use doc_vec")
-# use doc_vec
+# use multi_attn
 tf.app.flags.DEFINE_boolean('use_multi_attn', False, "Use mutli_attn")
+# create ckpt
+tf.app.flags.DEFINE_boolean('create_ckpt', False, "Create ckpt")
 
 
 # 10 1k training set size 10,000 
@@ -333,7 +335,7 @@ def main(unused_argv):
     raise Exception("The single_pass flag should only be True in decode mode")
 
   # Make a namedtuple hps, containing the values of the hyperparameters that the model needs
-  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'fine_tune', 'train_size', 'subred_size', 'use_doc_vec', 'use_multi_attn']
+  hparam_list = ['mode', 'lr', 'adagrad_init_acc', 'rand_unif_init_mag', 'trunc_norm_init_std', 'max_grad_norm', 'hidden_dim', 'emb_dim', 'batch_size', 'max_dec_steps', 'max_enc_steps', 'coverage', 'cov_loss_wt', 'pointer_gen', 'fine_tune', 'train_size', 'subred_size', 'use_doc_vec', 'use_multi_attn', 'create_ckpt']
   hps_dict = {}
   for key,val in FLAGS.__flags.items(): # for each flag
     if key in hparam_list: # if it's in the list
@@ -352,43 +354,65 @@ def main(unused_argv):
     model = SummarizationModel(hps, vocab)
 
     # -------------------------------------
-    # step = 152
+    if hps.create_ckpt.value:
+      step = 0
 
-    # model.build_graph()
-    # print ("get value")
-    # pretrained_ckpt = '/home/cs224u/pointer/log/pretrained_model_tf1.2.1/train/model-238410'
-    # reader = pywrap_tensorflow.NewCheckpointReader(pretrained_ckpt)
-    # var_to_shape_map = reader.get_variable_to_shape_map()
-    # value = {}
-    # for key in var_to_shape_map:
-    #     value[key] = reader.get_tensor(key)
-    # print ("assign op")
-    # for v in tf.trainable_variables():
-    #   key = v.name.split(":")[0]
-    #   if key == "seq2seq/embedding/embedding":
-    #     assign_emb = v.assign(tf.convert_to_tensor(value[key]))
+      model.build_graph()
+      print ("get value")
+      pretrained_ckpt = '/home/cs224u/pointer/log/pretrained_model_tf1.2.1/train/model-238410'
+      reader = pywrap_tensorflow.NewCheckpointReader(pretrained_ckpt)
+      var_to_shape_map = reader.get_variable_to_shape_map()
+      value = {}
+      for key in var_to_shape_map:
+          value[key] = reader.get_tensor(key)
 
-    # # Add an op to initialize the variables.
-    # init_op = tf.global_variables_initializer()
-    # # Add ops to save and restore all the variables.
-    # saver = tf.train.Saver()
-    # with tf.Session(config=util.get_config()) as sess:
-    #   sess.run(init_op)
-    #   # Do some work with the model.
-    #   assign_emb.op.run()
+      print ("assign op")
+      assign_op = []
+      if hps.use_multi_attn.value:
+        new_key = ["seq2seq/decoder/attention_decoder/calculate_pgen_0/Linear/Matrix",
+                  "seq2seq/decoder/attention_decoder/calculate_pgen_0/Linear/Bias",
+                  "seq2seq/decoder/attention_decoder/calculate_pgen_1/Linear/Matrix",
+                  "seq2seq/decoder/attention_decoder/calculate_pgen_1/Linear/Bias",
+                  "seq2seq/decoder/attention_decoder/calculate_pgen_2/Linear/Matrix",
+                  "seq2seq/decoder/attention_decoder/calculate_pgen_2/Linear/Bias"]
+        for v in tf.trainable_variables():
+          key = v.name.split(":")[0]
+          if key in new_key:
+            origin_key = "seq2seq/decoder/attention_decoder/calculate_pgen/Linear/"+new_key.split("/")[-1]
+            a_op = v.assign(tf.convert_to_tensor(value[origin_key]))
+          else:
+            a_op = v.assign(tf.convert_to_tensor(value[key]))
+          
+          assign_op.append(a_op)
+      else:
+        for v in tf.trainable_variables():
+          key = v.name.split(":")[0]
+          if key == "seq2seq/embedding/embedding":
+            assign_emb = v.assign(tf.convert_to_tensor(value[key]))
 
-    #   for _ in range(step):
-    #     batch = batcher.next_batch()
-    #     results = model.run_train_step(sess, batch)
-      
-    #   # Save the variables to disk.
-    #   ckpt_to_save = '/home/cs224u/pointer/log/model.ckpt-'+str(step)
-    #   save_path = saver.save(sess, ckpt_to_save)
-    #   print("Model saved in path: %s" % save_path)
+      # Add an op to initialize the variables.
+      init_op = tf.global_variables_initializer()
+      # Add ops to save and restore all the variables.
+      saver = tf.train.Saver()
+      with tf.Session(config=util.get_config()) as sess:
+        sess.run(init_op)
+        # Do some work with the model.
+        for a_op in assign_op:
+          a_op.op.run()
+
+        for _ in range(1):
+          batch = batcher.next_batch()
+          results = model.run_train_step(sess, batch)
+        
+        # Save the variables to disk.
+        ckpt_to_save = '/home/cs224u/pointer/log/model.ckpt-'+str(step)
+        save_path = saver.save(sess, ckpt_to_save)
+        print("Model saved in path: %s" % save_path)
 
     # -------------------------------------
-
-    setup_training(model, batcher, hps)
+    else:
+      setup_training(model, batcher, hps)
+      
   elif hps.mode.value == 'eval':
     model = SummarizationModel(hps, vocab)
     run_eval(model, batcher, vocab)

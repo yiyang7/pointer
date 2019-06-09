@@ -24,7 +24,7 @@ from tensorflow.python.ops import math_ops
 
 # Note: this function is based on tf.contrib.legacy_seq2seq_attention_decoder, which is now outdated.
 # In the future, it would make more sense to write variants on the attention mechanism using the new seq2seq library for tensorflow 1.0: https://www.tensorflow.org/api_guides/python/contrib.seq2seq#Attention
-def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, enc_padding_mask, cell, initial_state_attention=False, pointer_gen=True, use_coverage=False, prev_coverage=None):
+def attention_decoder(hps, sub_red, decoder_inputs, initial_state, encoder_states, enc_padding_mask, cell, initial_state_attention=False, pointer_gen=True, use_coverage=False, prev_coverage=None):
   """
   Args:
     decoder_inputs: A list of 2D Tensors [batch_size x input_size].
@@ -48,7 +48,7 @@ def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, en
     p_gens: List of length input_size, containing tensors of shape [batch_size, 1]. The values of p_gen for each decoder step. Empty list if pointer_gen=False.
     coverage: Coverage vector on the last step computed. None if use_coverage=False.
   """
-  with variable_scope.variable_scope("attention_decoder") as scope:
+  with variable_scope.variable_scope("attention_decoder", reuse=tf.AUTO_REUSE) as scope:
     batch_size = encoder_states.get_shape()[0].value # if this line fails, it's because the batch size isn't defined
     attn_size = encoder_states.get_shape()[2].value # if this line fails, it's because the attention length isn't defined
     # print ("attention_decoder attn_size: ", attn_size) # 128
@@ -62,17 +62,19 @@ def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, en
     # We set it to be equal to the size of the encoder states.
     attention_vec_size = attn_size
 
-    with variable_scope.variable_scope("attn_dist_"+sub_red,reuse=tf.AUTO_REUSE):
-      # Get the weight matrix W_h and apply it to each encoder state to get (W_h h_i), the encoder features
-      W_h = variable_scope.get_variable("W_h", [1, 1, attn_size, attention_vec_size])
+    # with variable_scope.variable_scope("attn_dist_"+sub_red,reuse=tf.AUTO_REUSE):
+    # Get the weight matrix W_h and apply it to each encoder state to get (W_h h_i), the encoder features
+    W_h = variable_scope.get_variable("W_h", [1, 1, attn_size, attention_vec_size])
+
     # print ("attention_decoder encoder_states: ", encoder_states.shape) # (16, ?, 1, 128)
     # print ("attention_decoder W_h: ", W_h.shape) # (1, 1, 128, 128)
     encoder_features = nn_ops.conv2d(encoder_states, W_h, [1, 1, 1, 1], "SAME") # shape (batch_size,attn_length,1,attention_vec_size)
     # print ("attention_decoder encoder_features: ", encoder_features.shape) # (16, ?, 1, 128)
 
-    with variable_scope.variable_scope("attn_dist_"+sub_red,reuse=tf.AUTO_REUSE):
-      # Get the weight vectors v and w_c (w_c is for coverage)
-      v = variable_scope.get_variable("v", [attention_vec_size])
+    # with variable_scope.variable_scope("attn_dist_"+sub_red,reuse=tf.AUTO_REUSE):
+    # Get the weight vectors v and w_c (w_c is for coverage)
+    v = variable_scope.get_variable("v", [attention_vec_size])
+
     if use_coverage:
       with variable_scope.variable_scope("coverage"):
         w_c = variable_scope.get_variable("w_c", [1, 1, 1, attention_vec_size])
@@ -93,7 +95,8 @@ def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, en
         attn_dist: attention distribution
         coverage: new coverage vector. shape (batch_size, attn_len, 1, 1)
       """
-      with variable_scope.variable_scope("Attention_"+sub_red,reuse=tf.AUTO_REUSE):
+      # with variable_scope.variable_scope("Attention_"+sub_red,reuse=tf.AUTO_REUSE):
+      with variable_scope.variable_scope("Attention",reuse=tf.AUTO_REUSE):
         # Pass the decoder state through a linear layer (this is W_s s_t + b_attn in the paper)
         decoder_features = linear(decoder_state, attention_vec_size, True) # shape (batch_size, attention_vec_size)
         decoder_features = tf.expand_dims(tf.expand_dims(decoder_features, 1), 1) # reshape to (batch_size, 1, 1, attention_vec_size)
@@ -150,7 +153,7 @@ def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, en
       # Re-calculate the context vector from the previous step so that we can pass it through a linear layer with this step's input to get a modified version of the input
       context_vector, _, coverage = attention(initial_state, coverage) # in decode mode, this is what updates the coverage vector
     for i, inp in enumerate(decoder_inputs):
-      # tf.logging.info("Adding attention_decoder timestep %i of %i", i, len(decoder_inputs))
+      tf.logging.info("Adding attention_decoder timestep %i of %i", i, len(decoder_inputs))
       if i > 0:
         variable_scope.get_variable_scope().reuse_variables()
 
@@ -160,8 +163,7 @@ def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, en
         raise ValueError("Could not infer input size from input: %s" % inp.name)
 
       # with variable_scope.variable_scope("some_scope_"+sub_red,reuse=tf.AUTO_REUSE):
-      with variable_scope.variable_scope("some_scope",reuse=tf.AUTO_REUSE):
-        x = linear([inp] + [context_vector], input_size, True)
+      x = linear([inp] + [context_vector], input_size, True)
 
       # Run the decoder RNN cell. cell_output = decoder state
       cell_output, state = cell(x, state)
@@ -176,7 +178,11 @@ def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, en
 
       # Calculate p_gen
       if pointer_gen:
-        with tf.variable_scope('calculate_pgen_'+sub_red,reuse=tf.AUTO_REUSE):
+        if hps.use_multi_attn.value:
+          scope_name = 'calculate_pgen_'+sub_red
+        else:
+          scope_name = 'calculate_pgen'
+        with tf.variable_scope(scope_name,reuse=tf.AUTO_REUSE):
           p_gen = linear([context_vector, state.c, state.h, x], 1, True) # Tensor shape (batch_size, 1)
           p_gen = tf.sigmoid(p_gen)
           p_gens.append(p_gen)
@@ -193,7 +199,10 @@ def attention_decoder(sub_red, decoder_inputs, initial_state, encoder_states, en
       coverage = array_ops.reshape(coverage, [batch_size, -1])
 
     # print ("attention_decoder attn_dists[0]: ", attn_dists[0].shape) # (16, ?)
-    return outputs, state, attn_dists, p_gens, 1 #coverage
+    if hps.use_multi_attn.value:
+      return outputs, state, attn_dists, p_gens, 1
+    else:
+      return outputs, state, attn_dists, p_gens, coverage
 
 
 
